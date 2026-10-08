@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Burger Time — game only</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0a0b10; --panel: #15161f; --fg: #f1efe6; --muted: #a8a59a; --accent: #f2b640; --border: rgba(255, 255, 255, 0.12); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; display: grid; place-items: center; padding: 16px; }
+    main { width: min(520px, 100%); display: grid; gap: 12px; }
+    /* the arcade monitor is a 4:3 tube on its side: 240 x 240 pixels shown 3:4 */
+    canvas { display: block; width: 100%; aspect-ratio: 3 / 4; image-rendering: pixelated; background: #000; border-radius: 8px; outline: none; }
+    canvas:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    #hint { color: var(--muted); margin: 0; }
+    .touch { display: none; justify-content: space-between; align-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .dpad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 48px); gap: 4px; }
+    .dpad [data-hold="up"] { grid-area: 1 / 2; } .dpad [data-hold="left"] { grid-area: 2 / 1; }
+    .dpad [data-hold="right"] { grid-area: 2 / 3; } .dpad [data-hold="down"] { grid-area: 3 / 2; }
+    .dpad button { padding: 0; font-size: 18px; touch-action: none; }
+    .pepper { width: 92px; height: 92px; border-radius: 50%; touch-action: none; }
+    @media (pointer: coarse) { .touch { display: flex; } }
+  </style>
+</head>
+<body>
+  <main id="player">
+    <canvas width="480" height="640" tabindex="0" aria-label="Burger Time. 5 or C inserts a coin, 1 or 2 starts, arrow keys or WASD move and climb, Space, Z or X throws pepper."></canvas>
+    <div class="bar">
+      <button type="button" data-play>Play</button>
+      <button type="button" data-coin>Coin</button>
+      <button type="button" data-start1>1P Start</button>
+      <button type="button" data-start2>2P Start</button>
+      <button type="button" data-pause>Pause</button>
+      <button type="button" data-mute aria-pressed="false">Mute</button>
+    </div>
+    <div class="touch" aria-label="Touch controls">
+      <div class="dpad">
+        <button type="button" data-hold="up" aria-label="Up">▲</button>
+        <button type="button" data-hold="left" aria-label="Left">◀</button>
+        <button type="button" data-hold="right" aria-label="Right">▶</button>
+        <button type="button" data-hold="down" aria-label="Down">▼</button>
+      </div>
+      <button type="button" class="pepper" data-hold="pepper">Pepper</button>
+    </div>
+    <p id="hint" data-hint>Click the game, then Enter to play (5 inserts a coin, 1 and 2 start). P pauses, M mutes.</p>
+  </main>
+  <script type="module">
+    import { mountPlayer } from './src/btimePlayer.mjs';
+    window.__bt = mountPlayer(document.getElementById('player'));
+  </script>
+</body>
+</html>
