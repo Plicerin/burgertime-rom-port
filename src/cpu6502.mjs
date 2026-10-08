@@ -26,6 +26,9 @@ export class M6502 {
     this.hadWritten = false;  // a write since the last opcode fetch
     this.irqLine = false;     // level-triggered IRQ input
     this.nmiPending = false;  // set on an NMI edge
+    // the I flag the interrupt poll sees: the 6502 polls before CLI, SEI and
+    // PLP change I, so their new value only counts after the next instruction
+    this.pollI = I;
   }
 
   reset() {
@@ -62,8 +65,8 @@ export class M6502 {
 
   // take a pending NMI, else a pending unmasked IRQ; true if one was taken
   serviceInterrupts() {
-    if (this.nmiPending) { this.nmiPending = false; this.interrupt(0xfffa); return true; }
-    if (this.irqLine && !(this.p & I)) { this.interrupt(0xfffe); return true; }
+    if (this.nmiPending) { this.nmiPending = false; this.interrupt(0xfffa); this.pollI = I; return true; }
+    if (this.irqLine && !this.pollI) { this.interrupt(0xfffe); this.pollI = I; return true; }
     return false;
   }
   read16(addr) { return this.read(addr) | (this.read((addr + 1) & 0xffff) << 8); }
@@ -147,7 +150,9 @@ export class M6502 {
     const entry = OPS[op];
     if (!entry) throw new Error(`unknown opcode $${op.toString(16)} at $${at.toString(16)}`);
     this.cycles += entry[0];
+    const before = this.p & I;
     entry[1](this);
+    this.pollI = op === 0x58 || op === 0x78 || op === 0x28 ? before : this.p & I;
     return op;
   }
 }

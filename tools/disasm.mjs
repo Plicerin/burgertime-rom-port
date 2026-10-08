@@ -67,7 +67,7 @@ export function decode(mem, addr, scrambled = false) {
   return { addr, op, raw, size, mn, mode, cyc, operand, scrambled, text: `${mn.toUpperCase()} ${operandText(mode, operand, (addr + size) & 0xffff)}`.trim() };
 }
 
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+if (process.argv[1] && import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
   const { loadRoms } = await import('./oracle.mjs');
   const mem = loadRoms().main;
   const from = parseInt(process.argv[2], 16), to = parseInt(process.argv[3], 16);
