@@ -17,6 +17,8 @@ const KEYS = {
   Space: 'pepper', KeyZ: 'pepper', KeyX: 'pepper',
 };
 const DIRS = ['right', 'left', 'up', 'down']; // P1 bits 0-3
+const AUDIO_QUEUE = 3;   // frames of sound kept ahead of the speaker (~52 ms)
+const MAX_CATCH_UP = 6;  // frames run per display refresh at most
 const COIN_FRAMES = 4;   // how long a coin holds the switch
 const START_FRAMES = 4;
 // RAM: $1B game in progress, $1D credits
@@ -111,8 +113,14 @@ export function mountPlayer(root) {
     if (edges.start) play();
     if (edges.back && started) togglePause();
     if (!paused && !document.hidden) {
-      acc += dt;
-      while (acc >= FRAME_MS) { step(); acc -= FRAME_MS; }
+      if (audio.running()) {
+        // the sound card's clock sets the pace: keep a few frames queued
+        acc = 0;
+        for (let n = 0; n < MAX_CATCH_UP && audio.queued() < AUDIO_QUEUE; n += 1) step();
+      } else {
+        acc += dt;
+        while (acc >= FRAME_MS) { step(); acc -= FRAME_MS; }
+      }
     }
     draw();
     requestAnimationFrame(frame);
