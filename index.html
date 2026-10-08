@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08080f">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Burger Time">
+  <link rel="apple-touch-icon" href="img/icon-180.png">
+  <title>Burger Time — Data East arcade, 1982</title>
+  <meta name="description" content="Data East's Burger Time arcade game, translated from the original ROMs instruction by instruction, main program and sound program, and checked against the real ROMs frame by frame.">
+  <link rel="icon" href="img/icon-192.png">
+  <style>
+    /* Same landing-page system as the other ports, in Burger Time's colors. */
+    :root {
+      --lp-night: #08080f;
+      --lp-panel: #15151f;
+      --lp-panel-2: #0f0f17;
+      --lp-line: #262635;
+      --lp-line-2: #3a3a52;
+      --lp-ink: #f3f0e6;
+      --lp-ink-2: #b9b5a8;
+      --lp-ink-3: #7d796e;
+      --lp-accent: #f2b640;    /* the buns */
+      --lp-accent-2: #f7cb6b;
+      --lp-lettuce: #48c848;
+      --lp-tomato: #e84a35;
+      --lp-floor: #3a48f0;     /* the platforms */
+      --lp-ladder: #40d8f0;
+      --lp-link: #f7cb6b;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(120% 70% at 50% -10%, #2a2410 0%, transparent 60%), var(--lp-night);
+      color: var(--lp-ink-2);
+      font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    main { width: min(1120px, 100%); }
+    code, kbd { font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; }
+    code { color: var(--lp-ink); }
+    a { color: var(--lp-link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--lp-accent); outline-offset: 3px; }
+    kbd {
+      display: inline-block; min-width: 1.5em; padding: 1px 6px; text-align: center;
+      border: 1px solid #4a4a62; border-bottom-width: 3px; border-radius: 5px;
+      background: #1c1c2a; color: var(--lp-ink); font-size: 11px; line-height: 1.5;
+    }
+
+    .lp-hero { padding: 40px 0 26px; text-align: center; }
+    /* a platform: blue floor between cyan ladder posts */
+    .lp-floor { margin: 0 auto 24px; max-width: 460px; height: 10px; border-radius: 2px;
+      background: linear-gradient(90deg, var(--lp-ladder) 0 14px, var(--lp-floor) 14px calc(100% - 14px), var(--lp-ladder) calc(100% - 14px)); opacity: 0.9; }
+    .lp-hero h1 {
+      font-size: clamp(36px, 10vw, 88px); line-height: 0.95; margin: 0; color: #fff; font-weight: 800;
+      letter-spacing: clamp(2px, 1.2vw, 12px); text-transform: uppercase; text-indent: clamp(2px, 1.2vw, 12px);
+      text-shadow: 0 2px 0 #7a4a08, 0 0 46px rgba(242, 182, 64, 0.5);
+    }
+    .lp-hero .lp-year { margin-top: 14px; font-size: 11px; letter-spacing: 5px; text-transform: uppercase; color: var(--lp-ink-3); }
+    .lp-hero .lp-sub { margin: 18px auto 0; max-width: 640px; font-size: 16px; line-height: 1.6; }
+    .lp-hero .lp-sub b { color: var(--lp-ink); font-weight: 600; }
+    .lp-cta { display: flex; justify-content: center; gap: 10px; margin-top: 24px; flex-wrap: wrap; }
+    .lp-btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 999px;
+      font-weight: 600; font-size: 14px; border: 1px solid var(--lp-line-2); background: var(--lp-panel);
+      color: var(--lp-ink); cursor: pointer; font-family: inherit; transition: transform 0.12s, background 0.12s, border-color 0.12s;
+    }
+    .lp-btn:hover { transform: translateY(-1px); border-color: #5a5a7a; text-decoration: none; }
+    .lp-btn.primary { background: var(--lp-accent); border-color: #a87412; color: #1c1404; }
+    .lp-btn.primary:hover { background: var(--lp-accent-2); }
+
+    .canvas-shell {
+      width: min(560px, 100%); margin: 0 auto; padding: 18px; border: 1px solid #2c2c40; border-radius: 20px;
+      background: linear-gradient(180deg, #1b1b28 0%, #0b0b12 100%);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    /* Full screen: the game and its touch controls fill the screen. Uses the
+       browser's fullscreen where allowed; iPhone Safari only lets video go
+       fullscreen, so there the page does it with fixed positioning. */
+    .fs-exit { display: none; }
+    body.fs { overflow: hidden; }
+    body.fs main > :not(#play):not(#tc) { display: none; }
+    body.fs #play {
+      position: fixed; inset: 0; z-index: 10; width: auto; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
+      background: var(--lp-night);
+    }
+    body.fs .tv { width: min(100%, calc((100dvh - 60px) * 3 / 4)); }
+    body.fs .fs-exit {
+      display: block; position: absolute; z-index: 12; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right));
+      font: 11px ui-monospace, "Cascadia Mono", monospace; padding: 6px 11px; border-radius: 8px;
+      border: 1px solid var(--lp-line-2); background: rgba(15, 15, 23, 0.85); color: var(--lp-ink); cursor: pointer;
+    }
+    body.fs #tc {
+      position: fixed; z-index: 11; left: 0; right: 0; bottom: 0; width: auto; margin: 0;
+      padding: 12px max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    }
+    @media (pointer: coarse) and (orientation: portrait) {
+      body.fs .tv { width: min(100%, calc((100dvh - 260px) * 3 / 4)); }
+    }
+    @media (pointer: coarse) and (orientation: landscape) {
+      body.fs .tv { width: min(calc(100% - 250px), calc((100dvh - 30px) * 3 / 4)); }
+      body.fs #status-line { display: none; }
+      body.fs #tc { pointer-events: none; }
+      body.fs #tc button { pointer-events: auto; opacity: 0.8; }
+      body.fs .dpad { grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 40px); }
+      body.fs .fire { width: 76px; height: 76px; }
+    }
+    .tv { position: relative; }
+    /* the arcade monitor is a 4:3 tube on its side: 240 x 240 pixels shown 3:4 */
+    .tv canvas, .poster img {
+      display: block; width: 100%; height: auto; aspect-ratio: 3 / 4;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .tv canvas { border-radius: 6px; border: 1px solid #000; box-shadow: 0 0 0 2px #262635, inset 0 0 40px rgba(0, 0, 0, 0.8); background: #000; outline: none; }
+    .tv canvas:focus-visible { box-shadow: 0 0 0 2px var(--lp-accent); }
+    .poster { position: absolute; inset: 0; display: grid; place-items: center; }
+    .poster[hidden] { display: none; }
+    .poster img { position: absolute; inset: 0; height: 100%; border-radius: 6px; }
+    .poster .lp-btn { position: relative; font-size: 16px; padding: 13px 26px; box-shadow: 0 14px 30px -6px #000; }
+    #status-line { margin-top: 14px; font-size: 10px; color: var(--lp-ink-3); letter-spacing: 1px; text-align: center; line-height: 1.9; text-transform: uppercase; font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; }
+
+    #tc { display: none; justify-content: space-between; align-items: center; width: 340px; max-width: 100%; margin: 14px auto 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .dpad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 48px); gap: 4px; }
+    .dpad button, .fire { font: 700 18px/1 ui-sans-serif, system-ui, sans-serif; color: var(--lp-ink); background: var(--lp-panel); border: 1px solid var(--lp-line-2); border-radius: 8px; touch-action: none; }
+    .dpad [data-hold="up"] { grid-area: 1 / 2; }
+    .dpad [data-hold="left"] { grid-area: 2 / 1; }
+    .dpad [data-hold="right"] { grid-area: 2 / 3; }
+    .dpad [data-hold="down"] { grid-area: 3 / 2; }
+    .fire { width: 92px; height: 92px; border-radius: 50%; background: var(--lp-lettuce); border-color: #237a23; color: #071a07; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+    @media (pointer: coarse) { #tc { display: flex; } }
+
+    .lp-tray { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; width: min(760px, 100%); margin: 14px auto 0; padding: 0 4px; font-size: 12px; color: var(--lp-ink-3); }
+    .lp-tray .switches { display: flex; flex-wrap: wrap; gap: 8px; }
+    .lp-tray button { font: 11px ui-monospace, "Cascadia Mono", "Courier New", monospace; padding: 5px 11px; border-radius: 8px; border: 1px solid var(--lp-line); background: var(--lp-panel); color: var(--lp-ink-2); cursor: pointer; }
+    .lp-tray button:hover { border-color: var(--lp-line-2); color: var(--lp-ink); }
+    .lp-tray button[aria-pressed="true"] { color: var(--lp-accent); border-color: #8a6a22; }
+
+    .panel.lp { width: min(1000px, 100%); margin: 44px auto 0; padding: 26px clamp(16px, 3vw, 30px); border: 1px solid var(--lp-line); border-radius: 16px; background: linear-gradient(180deg, var(--lp-panel) 0%, var(--lp-panel-2) 100%); }
+    .panel.lp h2 { font-size: 12px; letter-spacing: 4px; text-transform: uppercase; color: var(--lp-accent); margin: 0 0 10px; }
+    .panel.lp > p.lp-lead { font-size: 15px; line-height: 1.65; margin: 0 0 20px; max-width: 70ch; }
+    .panel.lp p.lp-lead b { color: var(--lp-ink); font-weight: 600; }
+    .lp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .lp-card { padding: 18px; border: 1px solid var(--lp-line); border-radius: 12px; background: rgba(255, 255, 255, 0.016); min-width: 0; }
+    .lp-card h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; font-size: 14px; color: var(--lp-ink); font-weight: 600; letter-spacing: 0.02em; }
+    .lp-card p { font-size: 13.5px; line-height: 1.6; margin: 0 0 9px; }
+    .lp-card p:last-child { margin-bottom: 0; }
+    .lp-card b { color: var(--lp-ink); font-weight: 600; }
+    .lp-card .plate { display: grid; place-items: center; height: 92px; margin: -4px 0 14px; border-radius: 8px; background: #000; }
+    .lp-card .plate img { image-rendering: pixelated; max-width: 100%; }
+    ul.lp-keys { list-style: none; margin: 0; padding: 0; }
+    ul.lp-keys li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.05); font-size: 13px; }
+    ul.lp-keys li:first-child { border-top: 0; }
+    ul.lp-keys li > span:last-child { text-align: right; flex: 0 0 auto; }
+    .lp-aside { margin-top: 18px; padding: 14px 16px; border-left: 3px solid var(--lp-accent); background: rgba(242, 182, 64, 0.07); border-radius: 0 10px 10px 0; font-size: 13.5px; line-height: 1.6; }
+    .lp-aside b { color: var(--lp-ink); }
+    .lp-aside ul { margin: 8px 0 0 18px; }
+    .lp-aside li { margin: 4px 0; }
+
+    .screens { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 16px; }
+    .screens figure { margin: 0; }
+    .screens img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--lp-line); image-rendering: pixelated; }
+    .screens figcaption { margin-top: 8px; font-size: 12.5px; line-height: 1.5; color: var(--lp-ink-3); }
+
+    .lp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 4px; }
+    .lp-stat { padding: 16px; border: 1px solid var(--lp-line); border-radius: 12px; text-align: center; background: rgba(255, 255, 255, 0.016); }
+    .lp-stat .n { display: block; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--lp-accent); font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; font-variant-numeric: tabular-nums; }
+    .lp-stat .t { display: block; margin-top: 7px; font-size: 12px; line-height: 1.45; color: var(--lp-ink-3); }
+
+    details.lp-dev { width: min(1000px, 100%); margin: 0 auto; }
+    details.lp-dev > summary { cursor: pointer; list-style: none; margin-top: 40px; padding: 13px 16px; border: 1px solid var(--lp-line); border-radius: 12px; background: var(--lp-panel-2); font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--lp-ink-3); font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; }
+    details.lp-dev > summary::-webkit-details-marker { display: none; }
+    details.lp-dev > summary:hover { color: var(--lp-ink-2); border-color: var(--lp-line-2); }
+    details.lp-dev ul { list-style: none; padding: 16px 4px 0; display: grid; gap: 8px; font-size: 13px; }
+
+    .lp-foot { width: min(1000px, 100%); margin: 40px auto 0; padding: 22px 4px 56px; border-top: 1px solid var(--lp-line); font-size: 12px; line-height: 1.6; color: var(--lp-ink-3); display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; }
+    .lp-foot p { max-width: 70ch; }
+
+    @media (max-width: 640px) {
+      .panel.lp { margin-top: 28px; padding: 20px 16px; }
+      .lp-hero { padding: 28px 0 18px; }
+      .lp-hero .lp-sub { font-size: 15px; }
+    }
+    .lp-home { display: inline-block; margin-bottom: 22px; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--lp-ink-3); text-decoration: none; }
+    .lp-home:hover { color: var(--lp-ink); }
+  </style>
+</head>
+<body>
+<main>
+  <header class="lp-hero">
+    <a class="lp-home" href="https://plicerin.github.io/">&larr; All games</a>
+    <div class="lp-floor" aria-hidden="true"></div>
+    <h1>Burger Time</h1>
+    <div class="lp-year">Data East · Arcade · 1982</div>
+    <p class="lp-sub">Peter Pepper, four giant burgers and a kitchen full of angry food. The arcade board's own programs, the game and its sound, <b>translated into JavaScript one instruction at a time</b> with every cycle counted, so every chase, drop and jingle plays as it did in the cabinet.</p>
+    <div class="lp-cta">
+      <a class="lp-btn primary" href="#play">Play now</a>
+      <a class="lp-btn" href="#how">Controls</a>
+      <a class="lp-btn" href="#rom">How it was built</a>
+    </div>
+  </header>
+
+  <div id="play" class="canvas-shell">
+    <div class="tv">
+      <canvas width="480" height="640" tabindex="0" aria-label="Burger Time. 5 or C inserts a coin, 1 or 2 starts, arrow keys or WASD move and climb, Space, Z or X throws pepper."></canvas>
+      <div class="poster" data-poster>
+        <img src="img/start.png" alt="Burger Time's character introduction: the first stage with its blue floors and ladders, buns, lettuce and patties waiting on the floors, Mr. Hot Dog, Mr. Pickle and Mr. Egg named in red, and Peter Pepper at the top right.">
+        <button class="lp-btn primary" type="button" data-play>Play Burger Time</button>
+      </div>
+    </div>
+    <div id="status-line" data-hint aria-live="polite">Press Play: it inserts a coin and starts a one player game</div>
+    <button type="button" class="fs-exit" data-exit>Exit full screen</button>
+  </div>
+  <div id="tc" aria-label="Touch controls">
+    <div class="dpad">
+      <button type="button" data-hold="up" aria-label="Up">▲</button>
+      <button type="button" data-hold="left" aria-label="Left">◀</button>
+      <button type="button" data-hold="right" aria-label="Right">▶</button>
+      <button type="button" data-hold="down" aria-label="Down">▼</button>
+    </div>
+    <button type="button" class="fire" data-hold="pepper">Pepper</button>
+  </div>
+  <div class="lp-tray">
+    <div><kbd>←</kbd><kbd>→</kbd> walk · <kbd>↑</kbd><kbd>↓</kbd> climb · <kbd>Space</kbd> pepper · <kbd>5</kbd> coin · <kbd>1</kbd><kbd>2</kbd> start</div>
+    <div class="switches">
+      <button type="button" data-coin>Coin</button>
+      <button type="button" data-start1>1P Start</button>
+      <button type="button" data-start2>2P Start</button>
+      <button type="button" data-pause>Pause</button>
+      <button type="button" data-mute aria-pressed="false">Mute</button>
+      <button type="button" id="lp-fullscreen">Fullscreen</button>
+    </div>
+  </div>
+
+  <section class="panel lp" id="how">
+    <h2>How to play</h2>
+    <p class="lp-lead">Walk across every burger part to drop it a floor; parts that land on the one below knock it down too. Get <b>all of them onto the plates</b> at the bottom to clear the stage. The food chases you the whole time. A shake of pepper stuns them, and you <b>start with only five</b>.</p>
+    <div class="lp-grid">
+      <div class="lp-card">
+        <h3>At the controls</h3>
+        <ul class="lp-keys">
+          <li><span>Walk</span><span><kbd>←</kbd><kbd>→</kbd> or <kbd>A</kbd><kbd>D</kbd></span></li>
+          <li><span>Climb</span><span><kbd>↑</kbd><kbd>↓</kbd> or <kbd>W</kbd><kbd>S</kbd></span></li>
+          <li><span>Pepper</span><span><kbd>Space</kbd> / <kbd>Z</kbd> / <kbd>X</kbd></span></li>
+          <li><span>Coin · Start</span><span><kbd>5</kbd> · <kbd>1</kbd> <kbd>2</kbd></span></li>
+          <li><span>Coin and 1P start</span><span><kbd>Enter</kbd></span></li>
+          <li><span>Pause · Mute</span><span><kbd>P</kbd> · <kbd>M</kbd></span></li>
+        </ul>
+      </div>
+      <div class="lp-card">
+        <h3>On a gamepad</h3>
+        <ul class="lp-keys">
+          <li><span>The joystick</span><span>stick or D-pad</span></li>
+          <li><span>Pepper</span><span>A · B · X · Y</span></li>
+          <li><span>Coin and start</span><span>Start</span></li>
+          <li><span>Pause</span><span>Back</span></li>
+        </ul>
+        <p style="margin-top: 12px">The cabinet's stick is 4-way: hold two directions and the last one pressed wins. Sound starts after your first click or key press, which is the browser's rule, not the cabinet's.</p>
+      </div>
+      <div class="lp-card">
+        <h3>Points and extras</h3>
+        <p>Every burger part you drop is <b>50 points</b>. Ice cream, coffee and fries show up mid-stage for <b>500, 1000 and 1500</b>, and each one gives you <b>a pepper</b> as well.</p>
+        <p>A <b>bonus chef every 20,000 points</b>, three to start with, as the factory DIP switches set them.</p>
+      </div>
+    </div>
+    <div class="screens">
+      <figure><img src="img/scores.png" alt="The scoring screen: burger parts are worth 50 points; ice cream 500, coffee 1000 and fries 1500 each add one pepper; a bonus chef for every 20000 points." width="720" height="960"><figcaption>The game's own scoring screen from attract mode.</figcaption></figure>
+      <figure><img src="img/demo.png" alt="The attract mode demo: burgers stacked on the plates, with 2000 and 1000 point scores where parts landed on enemies." width="720" height="960"><figcaption>The demo: parts that land with enemies on or under them score extra, here 2000 and 1000.</figcaption></figure>
+      <figure><img src="img/stage4.png" alt="The fourth stage: eight burgers, two to a column, between narrow floors." width="720" height="960"><figcaption>Stage 4 stacks eight burgers, 32 parts to drop.</figcaption></figure>
+      <figure><img src="img/initials.png" alt="The initials entry screen: the alphabet, SPA RUB END, and the best five players table." width="720" height="960"><figcaption>Make the best five and you sign the board.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="panel lp" id="cast">
+    <h2>Who's who</h2>
+    <div class="lp-grid">
+      <div class="lp-card">
+        <div class="plate"><img src="img/sprite_peter.png" alt="Peter Pepper" width="48" height="64"></div>
+        <h3>Peter Pepper</h3>
+        <p>The chef. Walks the floors, climbs the ladders and carries the pepper.</p>
+      </div>
+      <div class="lp-card">
+        <div class="plate"><img src="img/sprite_hotdog.png" alt="Mr. Hot Dog" width="48" height="64"></div>
+        <h3>Mr. Hot Dog</h3>
+        <p>The first of the three the attract mode introduces, by name and trademark.</p>
+      </div>
+      <div class="lp-card">
+        <div class="plate"><img src="img/sprite_pickle.png" alt="Mr. Pickle" width="48" height="64"></div>
+        <h3>Mr. Pickle</h3>
+        <p>Chases on the same floors and ladders.</p>
+      </div>
+      <div class="lp-card">
+        <div class="plate"><img src="img/sprite_egg.png" alt="Mr. Egg" width="48" height="64"></div>
+        <h3>Mr. Egg</h3>
+        <p>The third. A shake of pepper stops any of them for a moment.</p>
+      </div>
+      <div class="lp-card">
+        <div class="plate"><img src="img/items.png" alt="Ice cream 500, coffee 1000, fries 1500" width="288" height="128" style="height: 80px; width: auto"></div>
+        <h3>Bonus food</h3>
+        <p>Shows up during a stage: 500, 1000 or 1500 points and one more pepper.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel lp" id="rom">
+    <h2>Built from the ROM</h2>
+    <p class="lp-lead">This is not an emulator, and not a remake. A translator read the board's two 6502 programs, the game and the sound, and wrote out <b>each instruction as a line of JavaScript</b> with its cycle count. The translated programs run on models of the main board (video, sprites, palette) and the sound board (two AY-3-8910 chips and the analog mixer). The real ROMs run on a 6502 interpreter beside them to prove the two match, and that interpreter is checked against MAME.</p>
+    <div class="lp-stats">
+      <div class="lp-stat"><span class="n">0</span><span class="t">differences from the ROMs in 500,000 compared frames: registers, cycles, RAM, video and sound writes</span></div>
+      <div class="lp-stat"><span class="n">6,064</span><span class="t">instructions translated (5,195 game, 869 sound), each with its cycle count</span></div>
+      <div class="lp-stat"><span class="n">303</span><span class="t">of the game's instructions are fetched unscrambled by its CPU-7</span></div>
+      <div class="lp-stat"><span class="n">15,970</span><span class="t">sound chip writes in a test session, the same as MAME's, in the same order</span></div>
+    </div>
+    <div class="lp-aside"><b>Read in the ROM.</b> The board holds a few surprises:
+      <ul>
+        <li>The main CPU is Data East's <b>CPU-7</b>, a 6502 that unscrambles an opcode's bits when the previous instruction wrote to memory and the opcode sits at an address matching <code>xxxx xxx1 xxxx x1xx</code>. The same address can hold two different instructions, so the translator keeps both.</li>
+        <li>The program writes 298 times to three bytes it never reads (<code>$F5</code>–<code>$F7</code>). Those writes can only change how the next opcode is decoded.</li>
+        <li>There is no vertical blank interrupt: the game polls a bit wired into a DIP switch port. The main CPU's only interrupt is the coin slot.</li>
+        <li>The coin routine checks the credit limit with <code>CMP $D064,Y</code>, using whatever Y the interrupted code left, so it can read the program's own code as data. The port keeps those bytes too.</li>
+        <li>Six stage layouts repeat: stage 7 is stage 1 again. They need 16, 16, 18, 32, 16 and 18 parts on the plates.</li>
+        <li>Channel A of the second sound chip goes through its own band-pass filter around 190 Hz; the other five channels are mixed straight.</li>
+      </ul>
+      The port keeps all of it, because that is the game.</div>
+  </section>
+
+  <details class="lp-dev">
+    <summary>Developer pages</summary>
+    <ul>
+      <li><a href="game.html">Game only</a>: the player on a page of its own</li>
+      <li><a href="https://github.com/Plicerin/burgertime-rom-port#verify">Verifying against the ROMs</a>: the translator, the oracle and the MAME comparisons</li>
+    </ul>
+  </details>
+
+  <footer class="lp-foot">
+    <p><i>Burger Time</i> is © 1982 Data East Corporation. An unofficial preservation project, not affiliated with Data East or its successors. Hardware details follow MAME's btime driver. The ROM files are not included.</p>
+    <a href="https://github.com/Plicerin/burgertime-rom-port">Source on GitHub</a>
+  </footer>
+</main>
+
+<script type="module">
+  import { mountPlayer } from './src/btimePlayer.mjs';
+  const shell = document.getElementById('play');
+  window.__bt = mountPlayer(shell.parentElement);
+  // full screen: the browser's own where allowed (desktop, Android, iPad), and
+  // the same layout without it on iPhone, where only video may go fullscreen
+  const root = document.documentElement;
+  const nativeElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const canNative = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  const setFull = (on) => {
+    document.body.classList.toggle('fs', on);
+    shell.querySelector('canvas').focus({ preventScroll: true });
+  };
+  const enter = () => {
+    setFull(true);
+    if (canNative) (root.requestFullscreen || root.webkitRequestFullscreen)?.call(root)?.catch?.(() => {});
+  };
+  const leave = () => {
+    if (nativeElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    setFull(false);
+  };
+  document.getElementById('lp-fullscreen').addEventListener('click', () => (document.body.classList.contains('fs') ? leave() : enter()));
+  shell.querySelector('[data-exit]').addEventListener('click', leave);
+  for (const event of ['fullscreenchange', 'webkitfullscreenchange']) {
+    document.addEventListener(event, () => { if (!nativeElement()) setFull(false); });
+  }
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && document.body.classList.contains('fs') && !nativeElement()) leave(); });
+</script>
+</body>
+</html>

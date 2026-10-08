@@ -1,6 +1,6 @@
 # Burger Time (arcade) — ROM port
 
-Data East's *Burger Time* (1982), translated into JavaScript instruction for instruction from the arcade ROMs, both the main program and the sound program, and checked against the real ROMs frame by frame, which in turn are checked against MAME.
+Data East's *Burger Time* (1982), translated into JavaScript instruction for instruction from the arcade ROMs, both the main program and the sound program, and checked against the real ROMs frame by frame, which in turn are checked against MAME. Play it at **https://plicerin.github.io/burgertime-rom-port/**.
 
 ## How it works
 
@@ -11,7 +11,8 @@ The board has two 6502s. The main CPU is Data East's CPU-7, whose opcode fetches
 - `src/btimeBus.mjs`, `src/btimeVideo.mjs`: the main board's memory map (with the X/Y-swapped video RAM port) and the video: 32×32 characters, 8 sprites kept in video RAM, the background layer, the RAM palette. `src/btimeSound.mjs`: the sound board's map and timing (the command latch IRQ, the NMI from the screen's 8-line counter).
 - `src/ay8910.mjs`, `src/btimeMixer.mjs`: the AY-3-8910 (ported from MAME) and the sound board's mixing network: five channels mixed directly, AY #2 channel A through its op-amp band pass, the output high passes.
 - `src/cpu6502.mjs`: 6502 registers, arithmetic and interrupt timing (shared with the oracle).
-- `src/btimeMachine.mjs`: the translated programs on the boards, a frame per `runFrame()`. `src/btimePlayer.mjs`: canvas, keyboard, gamepad, touch and the sound worklet (`src/btimeSound.worklet.js`). `game.html`: the game.
+- `src/btimeMachine.mjs`: the translated programs on the boards, a frame per `runFrame()`. `src/btimePlayer.mjs`: canvas, keyboard, gamepad, touch and the sound worklet (`src/btimeSound.worklet.js`). `index.html`: the site, with the game embedded. `game.html`: the game on its own.
+- `img/`: the poster, screens, cast plates and icons, rendered from the translated game by `tools/gen-images.mjs`.
 
 The ROMs are not included.
 
@@ -21,7 +22,7 @@ The ROMs are not included.
 python -m http.server 5196 --bind 127.0.0.1
 ```
 
-Then open http://127.0.0.1:5196/game.html. ES modules need a server; opening the file directly won't work.
+Then open http://127.0.0.1:5196/. ES modules need a server; opening the file directly won't work.
 
 **Controls:** 5 or C inserts a coin, 1 and 2 start a one or two player game (Enter does coin and start), arrows or WASD move and climb, Space, Z or X throws pepper, P pauses, M mutes. Gamepads work too (Start = coin and start, Back = pause), and phones get touch buttons. The factory DIP settings are used: 3 lives, bonus at 20000, 4 enemies, end-of-level pepper.
 
