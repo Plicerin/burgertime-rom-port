@@ -1,25 +1,29 @@
-// Runs the oracle through attract mode and seeded random play sessions and
-// records what the main CPU executes, for tools/recompile.mjs:
+// Runs the oracle through test scenarios (tools/scenarios.mjs: attract, random
+// play, later levels, stage clears, high scores, two players, endless lives)
+// and records what the main CPU executes, for tools/recompile.mjs:
 //  - every instruction, keyed by address and whether its opcode was
 //    unscrambled (CPU-7), with an execution count
 //  - every computed control transfer (RTS, RTI, JMP (ind), interrupts)
 //  - every ROM byte read as data
-//   node tools/trace.mjs [sessions] [frames]   -> tools/out/trace.json
+//   node tools/trace.mjs [frames] [scenario,...]   -> tools/out/trace.json
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { OracleMachine } from './oracle.mjs';
 import { applyInputs } from './inputs.mjs';
 import { decode } from './disasm.mjs';
-import { randomSession } from './sessions.mjs';
+import { scenario, stepScenario } from './scenarios.mjs';
 
-const sessions = Number(process.argv[2] ?? 8);
-const frames = Number(process.argv[3] ?? 20000);
+const frames = Number(process.argv[2] ?? 20000);
+export const TRACE_SCENARIOS = ['attract', ...[1, 2, 3, 4, 5, 6, 7, 8].map((s) => `play-${s}`),
+  ...[2, 3, 4, 5, 6, 7, 8].map((n) => `start${n}-${n}`), 'clear-1', 'clear-2', 'clear-3', 'clear-4',
+  'hiscore-1', 'hiscore-2', '2p-1', '2p-2', 'lives-1', 'lives-2'];
+const names = process.argv[3] ? process.argv[3].split(',') : TRACE_SCENARIOS;
 
 const executed = new Map(); // key -> count; key = addr | scrambled << 16
 const decoded = new Map();  // key -> decode()
 const dynamic = new Map();  // "from>key" -> count (from = instruction key, or 'irq'/'reset')
 const dataReads = new Set();
 
-function run(machine, inputs, n) {
+function run(machine, sc, n) {
   const { cpu, bus } = machine;
   const mem = machine.roms.main;
   let cur = null; // instruction being executed: [addr, size]
@@ -54,14 +58,13 @@ function run(machine, inputs, n) {
   };
   for (let f = 0; f < n; f += 1) {
     machine.runFrame();
-    applyInputs(machine, inputs.get(f));
+    stepScenario(machine, sc, f, 0, applyInputs);
   }
 }
 
-run(new OracleMachine(), new Map(), 6000);
-for (let s = 1; s <= sessions; s += 1) {
-  run(new OracleMachine(), randomSession(frames, s), frames);
-  process.stderr.write(`session ${s}: ${executed.size} instructions\n`);
+for (const name of names) {
+  run(new OracleMachine(), scenario(name, frames), frames);
+  process.stderr.write(`${name}: ${executed.size} instructions\n`);
 }
 
 mkdirSync(new URL('./out/', import.meta.url), { recursive: true });

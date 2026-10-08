@@ -21,6 +21,7 @@ function enter(c, key, vectorKey) {
 // take a pending NMI, else an unmasked IRQ (MAME HOLD_LINE: taking it clears
 // the line when c.irqHold is set)
 function interrupts(c, key) {
+  if (c.deferInt) return key;
   if (c.nmiPending) { c.nmiPending = false; return enter(c, key, 0x0c000); }
   if (c.irqLine && !c.pollI) { if (c.irqHold) c.irqLine = false; return enter(c, key, 0x0c000); }
   return key;
@@ -44,7 +45,7 @@ function b0(c, bus, ram, rom, end, pc) {
       case 0x0c013: if (c.cycles >= end) { c.key = 0x0c013; return -1; } c.cycles += 2; c.s = c.x; // $C013 TXS
       case 0x0c014: if (c.cycles >= end) { c.key = 0x0c014; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $C014 LDA $4003
       case 0x0c017: if (c.cycles >= end) { c.key = 0x0c017; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $C017 AND #$10
-      case 0x0c019: if (c.cycles >= end) { c.key = 0x0c019; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c009; continue; } // $C019 BEQ $C009
+      case 0x0c019: if (c.cycles >= end) { c.key = 0x0c019; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c009; continue; } // $C019 BEQ $C009
       case 0x0c01b: if (c.cycles >= end) { c.key = 0x0c01b; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C01B LDA #$00
       case 0x0c01d: if (c.cycles >= end) { c.key = 0x0c01d; return -1; } c.cycles += 3; ram[0x01] = c.a; // $C01D STA $01
       case 0x0c01f: if (c.cycles >= end) { c.key = 0x0c01f; return -1; } c.cycles += 3; ram[0xf9] = c.a; // $C01F STA $F9
@@ -95,7 +96,7 @@ function b1(c, bus, ram, rom, end, pc) {
       case 0x0c078: if (c.cycles >= end) { c.key = 0x0c078; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C078 STA $F5
       case 0x0c07a: if (c.cycles >= end) { c.key = 0x0c07a; return -1; } c.cycles += 2;  // $C07A NOP
       case 0x0c07b: if (c.cycles >= end) { c.key = 0x0c07b; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $C07B LDA $4003
-      case 0x0c07e: if (c.cycles >= end) { c.key = 0x0c07e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c07b; continue; } // $C07E BPL $C07B
+      case 0x0c07e: if (c.cycles >= end) { c.key = 0x0c07e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c07b; continue; } // $C07E BPL $C07B
       case 0x0c080: if (c.cycles >= end) { c.key = 0x0c080; return -1; } c.cycles += 2; c.pollI = c.p & 0x04; c.p &= ~0x04; // $C080 CLI
       case 0x0c081: if (c.cycles >= end) { c.key = 0x0c081; return -1; } c.cycles += 2;  c.pollI = c.p & 0x04; if (c.cycles < end) { pc = interrupts(c, 0x0c082); if (pc !== 0x0c082) return pc; } pc = 0x0c082; continue; // $C081 NOP
       case 0x0c082: if (c.cycles >= end) { c.key = 0x0c082; return -1; } c.cycles += 2;  // $C082 NOP
@@ -114,11 +115,11 @@ function b2(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0c090: if (c.cycles >= end) { c.key = 0x0c090; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x3f); // $C090 AND #$3F
-      case 0x0c092: if (c.cycles >= end) { c.key = 0x0c092; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c097; continue; } // $C092 BNE $C097
+      case 0x0c092: if (c.cycles >= end) { c.key = 0x0c092; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c097; continue; } // $C092 BNE $C097
       case 0x0c094: if (c.cycles >= end) { c.key = 0x0c094; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C094 STA $F5
       case 0x0c096: if (c.cycles >= end) { c.key = 0x0c096; return -1; } c.cycles += 2;  // $C096 NOP
       case 0x0c097: if (c.cycles >= end) { c.key = 0x0c097; return -1; } c.cycles += 5; ram[0x14] = c.setNZ((ram[0x14] + 1) & 0xff); // $C097 INC $14
-      case 0x0c099: if (c.cycles >= end) { c.key = 0x0c099; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c09e; continue; } // $C099 BNE $C09E
+      case 0x0c099: if (c.cycles >= end) { c.key = 0x0c099; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c09e; continue; } // $C099 BNE $C09E
       case 0x0c09b: if (c.cycles >= end) { c.key = 0x0c09b; return -1; } c.cycles += 5; ram[0x15] = c.setNZ((ram[0x15] + 1) & 0xff); // $C09B INC $15
       case 0x0c09d: if (c.cycles >= end) { c.key = 0x0c09d; return -1; } c.cycles += 2;  // $C09D NOP
       case 0x0c09e: if (c.cycles >= end) { c.key = 0x0c09e; return -1; } c.cycles += 5; ram[0x16] = c.setNZ((ram[0x16] + 1) & 0xff); // $C09E INC $16
@@ -129,13 +130,13 @@ function b2(c, bus, ram, rom, end, pc) {
       case 0x0c0aa: if (c.cycles >= end) { c.key = 0x0c0aa; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C0AA STA $F5
       case 0x0c0ac: if (c.cycles >= end) { c.key = 0x0c0ac; return -1; } c.cycles += 2;  // $C0AC NOP
       case 0x0c0ad: if (c.cycles >= end) { c.key = 0x0c0ad; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $C0AD LDA $4003
-      case 0x0c0b0: if (c.cycles >= end) { c.key = 0x0c0b0; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0c0ad; continue; } // $C0B0 BMI $C0AD
+      case 0x0c0b0: if (c.cycles >= end) { c.key = 0x0c0b0; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c0ad; continue; } // $C0B0 BMI $C0AD
       case 0x0c0b2: if (c.cycles >= end) { c.key = 0x0c0b2; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xb4); return 0x0c8e6; // $C0B2 JSR $C8E6
       case 0x0c0b5: if (c.cycles >= end) { c.key = 0x0c0b5; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xb7); return 0x0d17b; // $C0B5 JSR $D17B
       case 0x0c0b8: if (c.cycles >= end) { c.key = 0x0c0b8; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xba); return 0x1d796; // $C0B8 JSR $D796
       case 0x0c0bb: if (c.cycles >= end) { c.key = 0x0c0bb; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xbd); return 0x0d898; // $C0BB JSR $D898
       case 0x0c0be: if (c.cycles >= end) { c.key = 0x0c0be; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $C0BE LDA $1B
-      case 0x0c0c0: if (c.cycles >= end) { c.key = 0x0c0c0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c0ce; continue; } // $C0C0 BEQ $C0CE
+      case 0x0c0c0: if (c.cycles >= end) { c.key = 0x0c0c0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c0ce; continue; } // $C0C0 BEQ $C0CE
       case 0x0c0c2: if (c.cycles >= end) { c.key = 0x0c0c2; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xc4); return 0x0db28; // $C0C2 JSR $DB28
       case 0x0c0c5: if (c.cycles >= end) { c.key = 0x0c0c5; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xc7); return 0x0dbbb; // $C0C5 JSR $DBBB
       case 0x0c0c8: if (c.cycles >= end) { c.key = 0x0c0c8; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xca); return 0x0dc77; // $C0C8 JSR $DC77
@@ -167,22 +168,22 @@ function b3(c, bus, ram, rom, end, pc) {
       case 0x0c0f6: if (c.cycles >= end) { c.key = 0x0c0f6; return -1; } c.cycles += 6; c.push(0xc0); c.push(0xf8); return 0x1c9bc; // $C0F6 JSR $C9BC
       case 0x0c0f9: if (c.cycles >= end) { c.key = 0x0c0f9; return -1; } c.cycles += 3; pc = 0x0c119; continue; // $C0F9 JMP $C119
       case 0x0c10b: if (c.cycles >= end) { c.key = 0x0c10b; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $C10B CMP #$0F
-      case 0x0c10d: if (c.cycles >= end) { c.key = 0x0c10d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c119; continue; } // $C10D BNE $C119
+      case 0x0c10d: if (c.cycles >= end) { c.key = 0x0c10d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c119; continue; } // $C10D BNE $C119
       case 0x0c10f: if (c.cycles >= end) { c.key = 0x0c10f; return -1; } c.cycles += 2; c.x = c.setNZ(0x02); // $C10F LDX #$02
       case 0x0c111: if (c.cycles >= end) { c.key = 0x0c111; return -1; } c.cycles += 2; c.y = c.setNZ(0xc1); // $C111 LDY #$C1
       case 0x0c113: if (c.cycles >= end) { c.key = 0x0c113; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x15); return 0x1c9bc; // $C113 JSR $C9BC
       case 0x0c116: if (c.cycles >= end) { c.key = 0x0c116; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $C116 STA $F6
       case 0x0c118: if (c.cycles >= end) { c.key = 0x0c118; return -1; } c.cycles += 2;  // $C118 NOP
       case 0x0c119: if (c.cycles >= end) { c.key = 0x0c119; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xc6]); // $C119 LDA $C6
-      case 0x0c11b: if (c.cycles >= end) { c.key = 0x0c11b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c12a; continue; } // $C11B BNE $C12A
+      case 0x0c11b: if (c.cycles >= end) { c.key = 0x0c11b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c12a; continue; } // $C11B BNE $C12A
       case 0x0c11d: if (c.cycles >= end) { c.key = 0x0c11d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xc5]); // $C11D LDA $C5
-      case 0x0c11f: if (c.cycles >= end) { c.key = 0x0c11f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c124; continue; } // $C11F BEQ $C124
+      case 0x0c11f: if (c.cycles >= end) { c.key = 0x0c11f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c124; continue; } // $C11F BEQ $C124
       case 0x0c121: if (c.cycles >= end) { c.key = 0x0c121; return -1; } c.cycles += 3; return 0x0c075; // $C121 JMP $C075
       case 0x0c124: if (c.cycles >= end) { c.key = 0x0c124; return -1; } c.cycles += 3; return 0x0c07b; // $C124 JMP $C07B
       case 0x0c12a: if (c.cycles >= end) { c.key = 0x0c12a; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C12A LDA #$00
       case 0x0c12c: if (c.cycles >= end) { c.key = 0x0c12c; return -1; } c.cycles += 3; ram[0xc6] = c.a; // $C12C STA $C6
       case 0x1c12e: if (c.cycles >= end) { c.key = 0x1c12e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $C12E* LDA $1B
-      case 0x0c130: if (c.cycles >= end) { c.key = 0x0c130; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c13d; } // $C130 BNE $C13D
+      case 0x0c130: if (c.cycles >= end) { c.key = 0x0c130; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c13d; } // $C130 BNE $C13D
       case 0x0c132: if (c.cycles >= end) { c.key = 0x0c132; return -1; } c.cycles += 2; c.x = c.setNZ(0x3f); return 0x0c134; // $C132 LDX #$3F
       default: return pc;
     }
@@ -196,27 +197,27 @@ function b4(c, bus, ram, rom, end, pc) {
       case 0x0c13d: if (c.cycles >= end) { c.key = 0x0c13d; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x3f); return 0x0c8a3; // $C13D JSR $C8A3
       case 0x0c140: if (c.cycles >= end) { c.key = 0x0c140; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x42); return 0x0cbe3; // $C140 JSR $CBE3
       case 0x0c143: if (c.cycles >= end) { c.key = 0x0c143; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x21]); // $C143 LDA $21
-      case 0x0c145: if (c.cycles >= end) { c.key = 0x0c145; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c15e; continue; } // $C145 BNE $C15E
+      case 0x0c145: if (c.cycles >= end) { c.key = 0x0c145; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c15e; continue; } // $C145 BNE $C15E
       case 0x0c147: if (c.cycles >= end) { c.key = 0x0c147; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x29]); // $C147 LDA $29
-      case 0x0c149: if (c.cycles >= end) { c.key = 0x0c149; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0c158; continue; } // $C149 BMI $C158
+      case 0x0c149: if (c.cycles >= end) { c.key = 0x0c149; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c158; continue; } // $C149 BMI $C158
       case 0x0c14b: if (c.cycles >= end) { c.key = 0x0c14b; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C14B LDA #$01
       case 0x0c14d: if (c.cycles >= end) { c.key = 0x0c14d; return -1; } c.cycles += 3; ram[0x20] = c.a; // $C14D STA $20
       case 0x1c14f: if (c.cycles >= end) { c.key = 0x1c14f; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x51); return 0x0c252; // $C14F* JSR $C252
       case 0x0c152: if (c.cycles >= end) { c.key = 0x0c152; return -1; } c.cycles += 3; return 0x0c075; // $C152 JMP $C075
       case 0x0c158: if (c.cycles >= end) { c.key = 0x0c158; return -1; } c.cycles += 3; return 0x0c1f1; // $C158 JMP $C1F1
       case 0x0c15e: if (c.cycles >= end) { c.key = 0x0c15e; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $C15E LDX $1F
-      case 0x0c160: if (c.cycles >= end) { c.key = 0x0c160; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c1af; } // $C160 BNE $C1AF
+      case 0x0c160: if (c.cycles >= end) { c.key = 0x0c160; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c1af; } // $C160 BNE $C1AF
       case 0x0c162: if (c.cycles >= end) { c.key = 0x0c162; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x29]); // $C162 LDA $29
       case 0x0c164: if (c.cycles >= end) { c.key = 0x0c164; return -1; } c.cycles += 3; c.a = c.setNZ(c.a & ram[0x2a]); // $C164 AND $2A
-      case 0x0c166: if (c.cycles >= end) { c.key = 0x0c166; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0c1a9; } // $C166 BMI $C1A9
+      case 0x0c166: if (c.cycles >= end) { c.key = 0x0c166; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c1a9; } // $C166 BMI $C1A9
       case 0x0c168: if (c.cycles >= end) { c.key = 0x0c168; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x2a]); // $C168 LDA $2A
-      case 0x0c16a: if (c.cycles >= end) { c.key = 0x0c16a; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c179; continue; } // $C16A BPL $C179
+      case 0x0c16a: if (c.cycles >= end) { c.key = 0x0c16a; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c179; continue; } // $C16A BPL $C179
       case 0x0c16c: if (c.cycles >= end) { c.key = 0x0c16c; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x6e); return 0x0c26d; // $C16C JSR $C26D
       case 0x0c16f: if (c.cycles >= end) { c.key = 0x0c16f; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C16F LDA #$01
       case 0x0c171: if (c.cycles >= end) { c.key = 0x0c171; return -1; } c.cycles += 3; ram[0x20] = c.a; // $C171 STA $20
       case 0x0c173: if (c.cycles >= end) { c.key = 0x0c173; return -1; } c.cycles += 3; return 0x0c075; // $C173 JMP $C075
       case 0x0c179: if (c.cycles >= end) { c.key = 0x0c179; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x29]); // $C179 LDA $29
-      case 0x0c17b: if (c.cycles >= end) { c.key = 0x0c17b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c186; continue; } // $C17B BPL $C186
+      case 0x0c17b: if (c.cycles >= end) { c.key = 0x0c17b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c186; continue; } // $C17B BPL $C186
       case 0x0c17d: if (c.cycles >= end) { c.key = 0x0c17d; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x7f); return 0x0c295; // $C17D JSR $C295
       case 0x0c180: if (c.cycles >= end) { c.key = 0x0c180; return -1; } c.cycles += 6; c.push(0xc1); c.push(0x82); return 0x0c8a3; // $C180 JSR $C8A3
       case 0x0c183: if (c.cycles >= end) { c.key = 0x0c183; return -1; } c.cycles += 3; ram[0xf7] = c.a; // $C183 STA $F7
@@ -234,7 +235,7 @@ function b5(c, bus, ram, rom, end, pc) {
       case 0x1c18d: if (c.cycles >= end) { c.key = 0x1c18d; return -1; } c.cycles += 3; ram[0x20] = c.a; // $C18D* STA $20
       case 0x1c18f: if (c.cycles >= end) { c.key = 0x1c18f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $C18F* LDA $4003
       case 0x0c192: if (c.cycles >= end) { c.key = 0x0c192; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $C192 AND #$40
-      case 0x0c194: if (c.cycles >= end) { c.key = 0x0c194; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c1a3; continue; } // $C194 BEQ $C1A3
+      case 0x0c194: if (c.cycles >= end) { c.key = 0x0c194; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c1a3; continue; } // $C194 BEQ $C1A3
       case 0x0c196: if (c.cycles >= end) { c.key = 0x0c196; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C196 LDA #$00
       case 0x0c198: if (c.cycles >= end) { c.key = 0x0c198; return -1; } c.cycles += 4; c.write(0x5005, c.a); // $C198 STA $5005
       case 0x0c19b: if (c.cycles >= end) { c.key = 0x0c19b; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C19B LDA #$01
@@ -246,15 +247,15 @@ function b5(c, bus, ram, rom, end, pc) {
       case 0x0c1a9: if (c.cycles >= end) { c.key = 0x0c1a9; return -1; } c.cycles += 3; return 0x0c1f1; // $C1A9 JMP $C1F1
       case 0x0c1af: if (c.cycles >= end) { c.key = 0x0c1af; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x2a]); // $C1AF LDA $2A
       case 0x0c1b1: if (c.cycles >= end) { c.key = 0x0c1b1; return -1; } c.cycles += 3; c.a = c.setNZ(c.a & ram[0x29]); // $C1B1 AND $29
-      case 0x0c1b3: if (c.cycles >= end) { c.key = 0x0c1b3; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0c1f1; } // $C1B3 BMI $C1F1
+      case 0x0c1b3: if (c.cycles >= end) { c.key = 0x0c1b3; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c1f1; } // $C1B3 BMI $C1F1
       case 0x0c1b5: if (c.cycles >= end) { c.key = 0x0c1b5; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x29]); // $C1B5 LDA $29
-      case 0x0c1b7: if (c.cycles >= end) { c.key = 0x0c1b7; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c1c6; continue; } // $C1B7 BPL $C1C6
+      case 0x0c1b7: if (c.cycles >= end) { c.key = 0x0c1b7; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c1c6; continue; } // $C1B7 BPL $C1C6
       case 0x0c1b9: if (c.cycles >= end) { c.key = 0x0c1b9; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C1B9 LDA #$01
       case 0x0c1bb: if (c.cycles >= end) { c.key = 0x0c1bb; return -1; } c.cycles += 3; ram[0x20] = c.a; // $C1BB STA $20
       case 0x1c1bd: if (c.cycles >= end) { c.key = 0x1c1bd; return -1; } c.cycles += 6; c.push(0xc1); c.push(0xbf); return 0x0c281; // $C1BD* JSR $C281
       case 0x0c1c0: if (c.cycles >= end) { c.key = 0x0c1c0; return -1; } c.cycles += 3; return 0x0c075; // $C1C0 JMP $C075
       case 0x0c1c6: if (c.cycles >= end) { c.key = 0x0c1c6; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x2a]); // $C1C6 LDA $2A
-      case 0x0c1c8: if (c.cycles >= end) { c.key = 0x0c1c8; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c1d3; continue; } // $C1C8 BPL $C1D3
+      case 0x0c1c8: if (c.cycles >= end) { c.key = 0x0c1c8; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c1d3; continue; } // $C1C8 BPL $C1D3
       case 0x0c1ca: if (c.cycles >= end) { c.key = 0x0c1ca; return -1; } c.cycles += 6; c.push(0xc1); c.push(0xcc); return 0x0c2ad; // $C1CA JSR $C2AD
       case 0x0c1cd: if (c.cycles >= end) { c.key = 0x0c1cd; return -1; } c.cycles += 6; c.push(0xc1); c.push(0xcf); return 0x0c8a3; // $C1CD JSR $C8A3
       case 0x0c1d0: if (c.cycles >= end) { c.key = 0x0c1d0; return -1; } c.cycles += 3; ram[0xf7] = c.a; // $C1D0 STA $F7
@@ -295,7 +296,7 @@ function b6(c, bus, ram, rom, end, pc) {
       case 0x0c214: if (c.cycles >= end) { c.key = 0x0c214; return -1; } c.cycles += 6; c.push(0xc2); c.push(0x16); return 0x0c8a3; // $C214 JSR $C8A3
       case 0x0c217: if (c.cycles >= end) { c.key = 0x0c217; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $C217 LDA $4003
       case 0x0c21a: if (c.cycles >= end) { c.key = 0x0c21a; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $C21A AND #$40
-      case 0x0c21c: if (c.cycles >= end) { c.key = 0x0c21c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0c22b; } // $C21C BEQ $C22B
+      case 0x0c21c: if (c.cycles >= end) { c.key = 0x0c21c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c22b; } // $C21C BEQ $C22B
       case 0x0c21e: if (c.cycles >= end) { c.key = 0x0c21e; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C21E LDA #$00
       case 0x0c220: if (c.cycles >= end) { c.key = 0x0c220; return -1; } c.cycles += 4; c.write(0x5005, c.a); // $C220 STA $5005
       case 0x0c223: if (c.cycles >= end) { c.key = 0x0c223; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C223 LDA #$01
@@ -322,7 +323,7 @@ function b7(c, bus, ram, rom, end, pc) {
       case 0x0c240: if (c.cycles >= end) { c.key = 0x0c240; return -1; } c.cycles += 3; ram[0x1b] = c.x; // $C240 STX $1B
       case 0x0c242: if (c.cycles >= end) { c.key = 0x0c242; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1d]); // $C242 LDA $1D
       case 0x0c244: if (c.cycles >= end) { c.key = 0x0c244; return -1; } c.cycles += 3; c.a = c.setNZ(c.a | ram[0x1e]); // $C244 ORA $1E
-      case 0x0c246: if (c.cycles >= end) { c.key = 0x0c246; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c24d; continue; } // $C246 BEQ $C24D
+      case 0x0c246: if (c.cycles >= end) { c.key = 0x0c246; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c24d; continue; } // $C246 BEQ $C24D
       case 0x0c248: if (c.cycles >= end) { c.key = 0x0c248; return -1; } c.cycles += 5; ram[0x1a] = c.setNZ((ram[0x1a] + 1) & 0xff); // $C248 INC $1A
       case 0x0c24a: if (c.cycles >= end) { c.key = 0x0c24a; return -1; } c.cycles += 3; ram[0xf7] = c.a; // $C24A STA $F7
       case 0x0c24c: if (c.cycles >= end) { c.key = 0x0c24c; return -1; } c.cycles += 2;  // $C24C NOP
@@ -407,7 +408,7 @@ function b9(c, bus, ram, rom, end, pc) {
       case 0x0c313: if (c.cycles >= end) { c.key = 0x0c313; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $C313 TXA
       case 0x0c314: if (c.cycles >= end) { c.key = 0x0c314; return -1; } c.cycles += 5; c.write((0x0300 + c.y) & 0xffff, c.a); // $C314 STA $0300,Y
       case 0x1c317: if (c.cycles >= end) { c.key = 0x1c317; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C317* INY
-      case 0x0c318: if (c.cycles >= end) { c.key = 0x0c318; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c309; continue; } // $C318 BNE $C309
+      case 0x0c318: if (c.cycles >= end) { c.key = 0x0c318; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c309; continue; } // $C318 BNE $C309
       case 0x0c31a: if (c.cycles >= end) { c.key = 0x0c31a; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C31A RTS
       case 0x1c31d: if (c.cycles >= end) { c.key = 0x1c31d; return -1; } c.cycles += 2;  // $C31D* NOP
       case 0x0c31e: if (c.cycles >= end) { c.key = 0x0c31e; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C31E LDA #$00
@@ -441,16 +442,16 @@ function b10(c, bus, ram, rom, end, pc) {
       case 0x0c348: if (c.cycles >= end) { c.key = 0x0c348; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C348 LDA #$00
       case 0x0c34a: if (c.cycles >= end) { c.key = 0x0c34a; return -1; } c.cycles += 6; c.write(c.indirectY(0x03, false), c.a); // $C34A STA ($03),Y
       case 0x1c34c: if (c.cycles >= end) { c.key = 0x1c34c; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C34C* INY
-      case 0x0c34d: if (c.cycles >= end) { c.key = 0x0c34d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c348; continue; } // $C34D BNE $C348
+      case 0x0c34d: if (c.cycles >= end) { c.key = 0x0c34d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c348; continue; } // $C34D BNE $C348
       case 0x0c34f: if (c.cycles >= end) { c.key = 0x0c34f; return -1; } c.cycles += 5; ram[0x04] = c.setNZ((ram[0x04] + 1) & 0xff); // $C34F INC $04
       case 0x0c351: if (c.cycles >= end) { c.key = 0x0c351; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C351 DEX
-      case 0x0c352: if (c.cycles >= end) { c.key = 0x0c352; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c343; continue; } // $C352 BNE $C343
+      case 0x0c352: if (c.cycles >= end) { c.key = 0x0c352; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c343; continue; } // $C352 BNE $C343
       case 0x0c354: if (c.cycles >= end) { c.key = 0x0c354; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $C354 STA $F6
       case 0x1c356: if (c.cycles >= end) { c.key = 0x1c356; return -1; } c.cycles += 2;  // $C356* NOP
       case 0x0c357: if (c.cycles >= end) { c.key = 0x0c357; return -1; } c.cycles += 4; c.write((0x01 + c.x) & 0xff, c.a); // $C357 STA $01,X
       case 0x0c359: if (c.cycles >= end) { c.key = 0x0c359; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $C359 INX
       case 0x0c35a: if (c.cycles >= end) { c.key = 0x0c35a; return -1; } c.cycles += 2; c.cmp(c.x, 0xe1); // $C35A CPX #$E1
-      case 0x0c35c: if (c.cycles >= end) { c.key = 0x0c35c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c357; continue; } // $C35C BNE $C357
+      case 0x0c35c: if (c.cycles >= end) { c.key = 0x0c35c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c357; continue; } // $C35C BNE $C357
       case 0x0c35e: if (c.cycles >= end) { c.key = 0x0c35e; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $C35E LDX #$00
       case 0x0c360: if (c.cycles >= end) { c.key = 0x0c360; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $C360 STA $F6
       case 0x0c362: if (c.cycles >= end) { c.key = 0x0c362; return -1; } c.cycles += 2;  // $C362 NOP
@@ -464,7 +465,7 @@ function b10(c, bus, ram, rom, end, pc) {
 function b11(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0c36a: if (c.cycles >= end) { c.key = 0x0c36a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c363; } // $C36A BNE $C363
+      case 0x0c36a: if (c.cycles >= end) { c.key = 0x0c36a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c363; } // $C36A BNE $C363
       case 0x0c36c: if (c.cycles >= end) { c.key = 0x0c36c; return -1; } c.cycles += 2; c.a = c.setNZ(0x02); // $C36C LDA #$02
       case 0x0c36e: if (c.cycles >= end) { c.key = 0x0c36e; return -1; } c.cycles += 3; ram[0x35] = c.a; // $C36E STA $35
       case 0x0c370: if (c.cycles >= end) { c.key = 0x0c370; return -1; } c.cycles += 2; c.a = c.setNZ(0x80); // $C370 LDA #$80
@@ -477,7 +478,7 @@ function b11(c, bus, ram, rom, end, pc) {
       case 0x0c37d: if (c.cycles >= end) { c.key = 0x0c37d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xc3b3, c.x))); // $C37D LDA $C3B3,X
       case 0x0c380: if (c.cycles >= end) { c.key = 0x0c380; return -1; } c.cycles += 4; c.write((0x36 + c.x) & 0xff, c.a); // $C380 STA $36,X
       case 0x0c382: if (c.cycles >= end) { c.key = 0x0c382; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C382 DEX
-      case 0x0c383: if (c.cycles >= end) { c.key = 0x0c383; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c37d; continue; } // $C383 BPL $C37D
+      case 0x0c383: if (c.cycles >= end) { c.key = 0x0c383; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c37d; continue; } // $C383 BPL $C37D
       case 0x0c385: if (c.cycles >= end) { c.key = 0x0c385; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $C385 STA $F6
       case 0x1c387: if (c.cycles >= end) { c.key = 0x1c387; return -1; } c.cycles += 2;  // $C387* NOP
       case 0x0c388: if (c.cycles >= end) { c.key = 0x0c388; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $C388 LDY #$00
@@ -491,9 +492,9 @@ function b11(c, bus, ram, rom, end, pc) {
       case 0x0c398: if (c.cycles >= end) { c.key = 0x0c398; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C398 INY
       case 0x0c399: if (c.cycles >= end) { c.key = 0x0c399; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $C399 INX
       case 0x0c39a: if (c.cycles >= end) { c.key = 0x0c39a; return -1; } c.cycles += 2; c.cmp(c.x, 0x10); // $C39A CPX #$10
-      case 0x0c39c: if (c.cycles >= end) { c.key = 0x0c39c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c392; continue; } // $C39C BNE $C392
+      case 0x0c39c: if (c.cycles >= end) { c.key = 0x0c39c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c392; continue; } // $C39C BNE $C392
       case 0x0c39e: if (c.cycles >= end) { c.key = 0x0c39e; return -1; } c.cycles += 2; c.cmp(c.y, 0x20); // $C39E CPY #$20
-      case 0x0c3a0: if (c.cycles >= end) { c.key = 0x0c3a0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c38d; continue; } // $C3A0 BNE $C38D
+      case 0x0c3a0: if (c.cycles >= end) { c.key = 0x0c3a0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c38d; continue; } // $C3A0 BNE $C38D
       case 0x0c3a2: if (c.cycles >= end) { c.key = 0x0c3a2; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C3A2 RTS
       case 0x0c3d9: if (c.cycles >= end) { c.key = 0x0c3d9; return -1; } c.cycles += 2;  return 0x0c3da; // $C3D9 NOP
       default: return pc;
@@ -581,7 +582,7 @@ function b13(c, bus, ram, rom, end, pc) {
 function b14(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0c45a: if (c.cycles >= end) { c.key = 0x0c45a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0c438; } // $C45A BCC $C438
+      case 0x0c45a: if (c.cycles >= end) { c.key = 0x0c45a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c438; } // $C45A BCC $C438
       case 0x0c45c: if (c.cycles >= end) { c.key = 0x0c45c; return -1; } c.cycles += 2; c.x = c.setNZ(0x03); // $C45C LDX #$03
       case 0x0c45e: if (c.cycles >= end) { c.key = 0x0c45e; return -1; } c.cycles += 6; c.push(0xc4); c.push(0x60); return 0x1c94e; // $C45E JSR $C94E
       case 0x0c461: if (c.cycles >= end) { c.key = 0x0c461; return -1; } c.cycles += 2; c.x = c.setNZ(0x04); // $C461 LDX #$04
@@ -647,7 +648,7 @@ function b15(c, bus, ram, rom, end, pc) {
       case 0x0c4d7: if (c.cycles >= end) { c.key = 0x0c4d7; return -1; } c.cycles += 5; ram[0x13] = c.setNZ((ram[0x13] + 1) & 0xff); // $C4D7 INC $13
       case 0x0c4d9: if (c.cycles >= end) { c.key = 0x0c4d9; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $C4D9 LDX #$07
       case 0x0c4db: if (c.cycles >= end) { c.key = 0x0c4db; return -1; } c.cycles += 6; c.push(0xc4); c.push(0xdd); return 0x0d3c3; // $C4DB JSR $D3C3
-      case 0x0c4de: if (c.cycles >= end) { c.key = 0x0c4de; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c4e4; continue; } // $C4DE BEQ $C4E4
+      case 0x0c4de: if (c.cycles >= end) { c.key = 0x0c4de; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c4e4; continue; } // $C4DE BEQ $C4E4
       case 0x0c4e0: if (c.cycles >= end) { c.key = 0x0c4e0; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C4E0 RTS
       case 0x0c4e4: if (c.cycles >= end) { c.key = 0x0c4e4; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $C4E4 LDX #$07
       case 0x0c4e6: if (c.cycles >= end) { c.key = 0x0c4e6; return -1; } c.cycles += 6; c.push(0xc4); c.push(0xe8); return 0x0d269; // $C4E6 JSR $D269
@@ -662,7 +663,7 @@ function b16(c, bus, ram, rom, end, pc) {
       case 0x0c4ec: if (c.cycles >= end) { c.key = 0x0c4ec; return -1; } c.cycles += 6; c.push(0xc4); c.push(0xee); return 0x0ea8d; // $C4EC JSR $EA8D
       case 0x0c4ef: if (c.cycles >= end) { c.key = 0x0c4ef; return -1; } c.cycles += 6; c.push(0xc4); c.push(0xf1); return 0x0e190; // $C4EF JSR $E190
       case 0x0c4f2: if (c.cycles >= end) { c.key = 0x0c4f2; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x19]); // $C4F2 LDA $19
-      case 0x0c4f4: if (c.cycles >= end) { c.key = 0x0c4f4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c4fc; continue; } // $C4F4 BNE $C4FC
+      case 0x0c4f4: if (c.cycles >= end) { c.key = 0x0c4f4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c4fc; continue; } // $C4F4 BNE $C4FC
       case 0x0c4f6: if (c.cycles >= end) { c.key = 0x0c4f6; return -1; } c.cycles += 3; return 0x0c4d2; // $C4F6 JMP $C4D2
       case 0x0c4fc: if (c.cycles >= end) { c.key = 0x0c4fc; return -1; } c.cycles += 2; c.x = c.setNZ(0x0f); // $C4FC LDX #$0F
       case 0x0c4fe: if (c.cycles >= end) { c.key = 0x0c4fe; return -1; } c.cycles += 2; c.y = c.setNZ(0xc5); // $C4FE LDY #$C5
@@ -729,7 +730,7 @@ function b17(c, bus, ram, rom, end, pc) {
       case 0x0c5cc: if (c.cycles >= end) { c.key = 0x0c5cc; return -1; } c.cycles += 2; c.x = c.setNZ(0x01); // $C5CC LDX #$01
       case 0x0c5ce: if (c.cycles >= end) { c.key = 0x0c5ce; return -1; } c.cycles += 6; c.push(0xc5); c.push(0xd0); return 0x0ca2c; // $C5CE JSR $CA2C
       case 0x0c5d1: if (c.cycles >= end) { c.key = 0x0c5d1; return -1; } c.cycles += 5; ram[0x13] = c.setNZ((ram[0x13] + 1) & 0xff); // $C5D1 INC $13
-      case 0x0c5d3: if (c.cycles >= end) { c.key = 0x0c5d3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c5d8; } return 0x0c5d5; // $C5D3 BNE $C5D8
+      case 0x0c5d3: if (c.cycles >= end) { c.key = 0x0c5d3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c5d8; } return 0x0c5d5; // $C5D3 BNE $C5D8
       default: return pc;
     }
   }
@@ -741,7 +742,7 @@ function b18(c, bus, ram, rom, end, pc) {
       case 0x1c5d7: if (c.cycles >= end) { c.key = 0x1c5d7; return -1; } c.cycles += 2;  // $C5D7* NOP
       case 0x0c5d8: if (c.cycles >= end) { c.key = 0x0c5d8; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $C5D8 LDX #$07
       case 0x0c5da: if (c.cycles >= end) { c.key = 0x0c5da; return -1; } c.cycles += 6; c.push(0xc5); c.push(0xdc); return 0x0d3c3; // $C5DA JSR $D3C3
-      case 0x0c5dd: if (c.cycles >= end) { c.key = 0x0c5dd; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c5fa; continue; } // $C5DD BEQ $C5FA
+      case 0x0c5dd: if (c.cycles >= end) { c.key = 0x0c5dd; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c5fa; continue; } // $C5DD BEQ $C5FA
       case 0x0c5df: if (c.cycles >= end) { c.key = 0x0c5df; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x14]); // $C5DF LDA $14
       case 0x0c5e1: if (c.cycles >= end) { c.key = 0x0c5e1; return -1; } c.cycles += 2; c.cmp(c.a, 0x04); // $C5E1 CMP #$04
       case 0x0c5e3: if (c.cycles >= end) { c.key = 0x0c5e3; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 2; return 0x0c621; } // $C5E3 BCC $C621
@@ -759,11 +760,11 @@ function b18(c, bus, ram, rom, end, pc) {
       case 0x0c600: if (c.cycles >= end) { c.key = 0x0c600; return -1; } c.cycles += 6; c.push(0xc6); c.push(0x02); return 0x0d269; // $C600 JSR $D269
       case 0x0c603: if (c.cycles >= end) { c.key = 0x0c603; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181e)); // $C603 LDA $181E
       case 0x0c606: if (c.cycles >= end) { c.key = 0x0c606; return -1; } c.cycles += 2; c.cmp(c.a, 0x22); // $C606 CMP #$22
-      case 0x0c608: if (c.cycles >= end) { c.key = 0x0c608; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c615; continue; } // $C608 BEQ $C615
+      case 0x0c608: if (c.cycles >= end) { c.key = 0x0c608; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c615; continue; } // $C608 BEQ $C615
       case 0x0c60a: if (c.cycles >= end) { c.key = 0x0c60a; return -1; } c.cycles += 2; c.cmp(c.a, 0x4a); // $C60A CMP #$4A
-      case 0x0c60c: if (c.cycles >= end) { c.key = 0x0c60c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c615; continue; } // $C60C BEQ $C615
+      case 0x0c60c: if (c.cycles >= end) { c.key = 0x0c60c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c615; continue; } // $C60C BEQ $C615
       case 0x0c60e: if (c.cycles >= end) { c.key = 0x0c60e; return -1; } c.cycles += 2; c.cmp(c.a, 0x82); // $C60E CMP #$82
-      case 0x0c610: if (c.cycles >= end) { c.key = 0x0c610; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c621; } // $C610 BNE $C621
+      case 0x0c610: if (c.cycles >= end) { c.key = 0x0c610; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c621; } // $C610 BNE $C621
       case 0x0c612: if (c.cycles >= end) { c.key = 0x0c612; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C612 STA $F5
       case 0x0c614: if (c.cycles >= end) { c.key = 0x0c614; return -1; } c.cycles += 2;  // $C614 NOP
       case 0x0c615: if (c.cycles >= end) { c.key = 0x0c615; return -1; } c.cycles += 6; c.push(0xc6); c.push(0x17); return 0x1d1ad; // $C615 JSR $D1AD
@@ -789,7 +790,7 @@ function b19(c, bus, ram, rom, end, pc) {
       case 0x0c713: if (c.cycles >= end) { c.key = 0x0c713; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $C713 TAY
       case 0x0c714: if (c.cycles >= end) { c.key = 0x0c714; return -1; } c.cycles += 2; c.x = c.setNZ(0x02); // $C714 LDX #$02
       case 0x0c716: if (c.cycles >= end) { c.key = 0x0c716; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x01); // $C716 AND #$01
-      case 0x0c718: if (c.cycles >= end) { c.key = 0x0c718; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c71f; continue; } // $C718 BEQ $C71F
+      case 0x0c718: if (c.cycles >= end) { c.key = 0x0c718; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c71f; continue; } // $C718 BEQ $C71F
       case 0x0c71a: if (c.cycles >= end) { c.key = 0x0c71a; return -1; } c.cycles += 2; c.x = c.setNZ(0x04); // $C71A LDX #$04
       case 0x0c71c: if (c.cycles >= end) { c.key = 0x0c71c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C71C STA $F5
       case 0x1c71e: if (c.cycles >= end) { c.key = 0x1c71e; return -1; } c.cycles += 2;  // $C71E* NOP
@@ -833,14 +834,14 @@ function b20(c, bus, ram, rom, end, pc) {
       case 0x1c767: if (c.cycles >= end) { c.key = 0x1c767; return -1; } c.cycles += 2;  // $C767* NOP
       case 0x0c768: if (c.cycles >= end) { c.key = 0x0c768; return -1; } c.cycles += 6; c.push(0xc7); c.push(0x6a); return 0x0c8a3; // $C768 JSR $C8A3
       case 0x0c76b: if (c.cycles >= end) { c.key = 0x0c76b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x20]); // $C76B LDA $20
-      case 0x0c76d: if (c.cycles >= end) { c.key = 0x0c76d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c79b; } // $C76D BNE $C79B
+      case 0x0c76d: if (c.cycles >= end) { c.key = 0x0c76d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c79b; } // $C76D BNE $C79B
       case 0x0c76f: if (c.cycles >= end) { c.key = 0x0c76f; return -1; } c.cycles += 2; c.a = c.setNZ(0x04); // $C76F LDA #$04
       case 0x0c771: if (c.cycles >= end) { c.key = 0x0c771; return -1; } c.cycles += 6; c.push(0xc7); c.push(0x73); return 0x0ea5d; // $C771 JSR $EA5D
       case 0x0c774: if (c.cycles >= end) { c.key = 0x0c774; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4004)); // $C774 LDA $4004
       case 0x0c777: if (c.cycles >= end) { c.key = 0x0c777; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $C777 AND #$10
-      case 0x0c779: if (c.cycles >= end) { c.key = 0x0c779; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c78d; } // $C779 BNE $C78D
+      case 0x0c779: if (c.cycles >= end) { c.key = 0x0c779; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c78d; } // $C779 BNE $C78D
       case 0x0c77b: if (c.cycles >= end) { c.key = 0x0c77b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $C77B LDA $1B
-      case 0x0c77d: if (c.cycles >= end) { c.key = 0x0c77d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0c78d; } // $C77D BEQ $C78D
+      case 0x0c77d: if (c.cycles >= end) { c.key = 0x0c77d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c78d; } // $C77D BEQ $C78D
       case 0x0c77f: if (c.cycles >= end) { c.key = 0x0c77f; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $C77F LDX $1F
       case 0x0c781: if (c.cycles >= end) { c.key = 0x0c781; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x2b + c.x) & 0xff)); // $C781 LDA $2B,X
       case 0x0c783: if (c.cycles >= end) { c.key = 0x0c783; return -1; } c.cycles += 2; c.p &= ~0x01; // $C783 CLC
@@ -873,7 +874,7 @@ function b21(c, bus, ram, rom, end, pc) {
       case 0x0c7a7: if (c.cycles >= end) { c.key = 0x0c7a7; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C7A7 STA $F5
       case 0x0c7a9: if (c.cycles >= end) { c.key = 0x0c7a9; return -1; } c.cycles += 2;  // $C7A9 NOP
       case 0x0c7aa: if (c.cycles >= end) { c.key = 0x0c7aa; return -1; } c.cycles += 2; c.cmp(c.y, 0x06); // $C7AA CPY #$06
-      case 0x0c7ac: if (c.cycles >= end) { c.key = 0x0c7ac; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0c7b9; continue; } // $C7AC BCC $C7B9
+      case 0x0c7ac: if (c.cycles >= end) { c.key = 0x0c7ac; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c7b9; continue; } // $C7AC BCC $C7B9
       case 0x0c7ae: if (c.cycles >= end) { c.key = 0x0c7ae; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $C7AE TYA
       case 0x0c7af: if (c.cycles >= end) { c.key = 0x0c7af; return -1; } c.cycles += 2; c.p |= 0x01; // $C7AF SEC
       case 0x0c7b0: if (c.cycles >= end) { c.key = 0x0c7b0; return -1; } c.cycles += 2; c.sbc(0x06); // $C7B0 SBC #$06
@@ -883,7 +884,7 @@ function b21(c, bus, ram, rom, end, pc) {
       case 0x0c7bb: if (c.cycles >= end) { c.key = 0x0c7bb; return -1; } c.cycles += 4; c.y = c.setNZ(c.read((0x61 + c.x) & 0xff)); // $C7BB LDY $61,X
       case 0x0c7bd: if (c.cycles >= end) { c.key = 0x0c7bd; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $C7BD DEY
       case 0x0c7be: if (c.cycles >= end) { c.key = 0x0c7be; return -1; } c.cycles += 2; c.cmp(c.y, 0x06); // $C7BE CPY #$06
-      case 0x0c7c0: if (c.cycles >= end) { c.key = 0x0c7c0; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0c7c7; } // $C7C0 BCC $C7C7
+      case 0x0c7c0: if (c.cycles >= end) { c.key = 0x0c7c0; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c7c7; } // $C7C0 BCC $C7C7
       case 0x0c7c2: if (c.cycles >= end) { c.key = 0x0c7c2; return -1; } c.cycles += 2; c.y = c.setNZ(0x05); // $C7C2 LDY #$05
       case 0x0c7c4: if (c.cycles >= end) { c.key = 0x0c7c4; return -1; } c.cycles += 3; ram[0xf5] = c.a; return 0x1c7c6; // $C7C4 STA $F5
       default: return pc;
@@ -910,21 +911,21 @@ function b22(c, bus, ram, rom, end, pc) {
       case 0x0c7e9: if (c.cycles >= end) { c.key = 0x0c7e9; return -1; } c.cycles += 2;  // $C7E9 NOP
       case 0x0c7ea: if (c.cycles >= end) { c.key = 0x0c7ea; return -1; } c.cycles += 4; c.write((0x68 + c.x) & 0xff, c.a); // $C7EA STA $68,X
       case 0x1c7ec: if (c.cycles >= end) { c.key = 0x1c7ec; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C7EC* DEX
-      case 0x0c7ed: if (c.cycles >= end) { c.key = 0x0c7ed; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c7ea; continue; } // $C7ED BPL $C7EA
+      case 0x0c7ed: if (c.cycles >= end) { c.key = 0x0c7ed; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c7ea; continue; } // $C7ED BPL $C7EA
       case 0x0c7ef: if (c.cycles >= end) { c.key = 0x0c7ef; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $C7EF LDX #$07
       case 0x0c7f1: if (c.cycles >= end) { c.key = 0x0c7f1; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C7F1 LDA #$01
       case 0x0c7f3: if (c.cycles >= end) { c.key = 0x0c7f3; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C7F3 STA $F5
       case 0x1c7f5: if (c.cycles >= end) { c.key = 0x1c7f5; return -1; } c.cycles += 2;  // $C7F5* NOP
       case 0x0c7f6: if (c.cycles >= end) { c.key = 0x0c7f6; return -1; } c.cycles += 4; c.write((0x99 + c.x) & 0xff, c.a); // $C7F6 STA $99,X
       case 0x0c7f8: if (c.cycles >= end) { c.key = 0x0c7f8; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C7F8 DEX
-      case 0x0c7f9: if (c.cycles >= end) { c.key = 0x0c7f9; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c7f6; continue; } // $C7F9 BPL $C7F6
+      case 0x0c7f9: if (c.cycles >= end) { c.key = 0x0c7f9; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c7f6; continue; } // $C7F9 BPL $C7F6
       case 0x0c7fb: if (c.cycles >= end) { c.key = 0x0c7fb; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $C7FB LDX #$07
       case 0x0c7fd: if (c.cycles >= end) { c.key = 0x0c7fd; return -1; } c.cycles += 2; c.a = c.setNZ(0x04); // $C7FD LDA #$04
       case 0x0c7ff: if (c.cycles >= end) { c.key = 0x0c7ff; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C7FF STA $F5
       case 0x0c801: if (c.cycles >= end) { c.key = 0x0c801; return -1; } c.cycles += 2;  // $C801 NOP
       case 0x0c802: if (c.cycles >= end) { c.key = 0x0c802; return -1; } c.cycles += 4; c.write((0xa1 + c.x) & 0xff, c.a); // $C802 STA $A1,X
       case 0x0c804: if (c.cycles >= end) { c.key = 0x0c804; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C804 DEX
-      case 0x0c805: if (c.cycles >= end) { c.key = 0x0c805; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c802; continue; } return 0x0c807; // $C805 BPL $C802
+      case 0x0c805: if (c.cycles >= end) { c.key = 0x0c805; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c802; continue; } return 0x0c807; // $C805 BPL $C802
       default: return pc;
     }
   }
@@ -938,7 +939,7 @@ function b23(c, bus, ram, rom, end, pc) {
       case 0x0c80d: if (c.cycles >= end) { c.key = 0x0c80d; return -1; } c.cycles += 2;  // $C80D NOP
       case 0x0c80e: if (c.cycles >= end) { c.key = 0x0c80e; return -1; } c.cycles += 4; c.write((0xa9 + c.x) & 0xff, c.a); // $C80E STA $A9,X
       case 0x0c810: if (c.cycles >= end) { c.key = 0x0c810; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $C810 DEX
-      case 0x0c811: if (c.cycles >= end) { c.key = 0x0c811; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0c80e; continue; } // $C811 BPL $C80E
+      case 0x0c811: if (c.cycles >= end) { c.key = 0x0c811; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c80e; continue; } // $C811 BPL $C80E
       case 0x0c813: if (c.cycles >= end) { c.key = 0x0c813; return -1; } c.cycles += 3; ram[0x6f] = c.a; // $C813 STA $6F
       case 0x0c815: if (c.cycles >= end) { c.key = 0x0c815; return -1; } c.cycles += 2; c.a = c.setNZ(0x03); // $C815 LDA #$03
       case 0x0c817: if (c.cycles >= end) { c.key = 0x0c817; return -1; } c.cycles += 3; ram[0xa8] = c.a; // $C817 STA $A8
@@ -948,7 +949,7 @@ function b23(c, bus, ram, rom, end, pc) {
       case 0x0c81f: if (c.cycles >= end) { c.key = 0x0c81f; return -1; } c.cycles += 6; c.push(0xc8); c.push(0x21); return 0x0da89; // $C81F JSR $DA89
       case 0x0c822: if (c.cycles >= end) { c.key = 0x0c822; return -1; } c.cycles += 6; c.push(0xc8); c.push(0x24); return 0x0c8c6; // $C822 JSR $C8C6
       case 0x0c825: if (c.cycles >= end) { c.key = 0x0c825; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x21]); // $C825 LDA $21
-      case 0x0c827: if (c.cycles >= end) { c.key = 0x0c827; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c834; continue; } // $C827 BEQ $C834
+      case 0x0c827: if (c.cycles >= end) { c.key = 0x0c827; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c834; continue; } // $C827 BEQ $C834
       case 0x0c829: if (c.cycles >= end) { c.key = 0x0c829; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1f]); // $C829 LDA $1F
       case 0x0c82b: if (c.cycles >= end) { c.key = 0x0c82b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0x01); // $C82B EOR #$01
       case 0x0c82d: if (c.cycles >= end) { c.key = 0x0c82d; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $C82D TAX
@@ -974,7 +975,7 @@ function b24(c, bus, ram, rom, end, pc) {
       case 0x0c84c: if (c.cycles >= end) { c.key = 0x0c84c; return -1; } c.cycles += 2; c.a = c.setNZ(0x3e); // $C84C LDA #$3E
       case 0x0c84e: if (c.cycles >= end) { c.key = 0x0c84e; return -1; } c.cycles += 3; ram[0x13] = c.a; // $C84E STA $13
       case 0x0c850: if (c.cycles >= end) { c.key = 0x0c850; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $C850 LDA $1B
-      case 0x0c852: if (c.cycles >= end) { c.key = 0x0c852; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c858; continue; } // $C852 BEQ $C858
+      case 0x0c852: if (c.cycles >= end) { c.key = 0x0c852; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c858; continue; } // $C852 BEQ $C858
       case 0x0c854: if (c.cycles >= end) { c.key = 0x0c854; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C854 RTS
       case 0x0c858: if (c.cycles >= end) { c.key = 0x0c858; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $C858 LDA #$01
       case 0x0c85a: if (c.cycles >= end) { c.key = 0x0c85a; return -1; } c.cycles += 3; ram[0x68] = c.a; // $C85A STA $68
@@ -1026,11 +1027,11 @@ function b25(c, bus, ram, rom, end, pc) {
       case 0x0c8af: if (c.cycles >= end) { c.key = 0x0c8af; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C8AF LDA #$00
       case 0x0c8b1: if (c.cycles >= end) { c.key = 0x0c8b1; return -1; } c.cycles += 6; c.write(c.indirectY(0x03, false), c.a); // $C8B1 STA ($03),Y
       case 0x0c8b3: if (c.cycles >= end) { c.key = 0x0c8b3; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C8B3 INY
-      case 0x0c8b4: if (c.cycles >= end) { c.key = 0x0c8b4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c8af; continue; } // $C8B4 BNE $C8AF
+      case 0x0c8b4: if (c.cycles >= end) { c.key = 0x0c8b4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c8af; continue; } // $C8B4 BNE $C8AF
       case 0x0c8b6: if (c.cycles >= end) { c.key = 0x0c8b6; return -1; } c.cycles += 5; ram[0x04] = c.setNZ((ram[0x04] + 1) & 0xff); // $C8B6 INC $04
       case 0x0c8b8: if (c.cycles >= end) { c.key = 0x0c8b8; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $C8B8 LDA $04
       case 0x0c8ba: if (c.cycles >= end) { c.key = 0x0c8ba; return -1; } c.cycles += 2; c.cmp(c.a, 0x18); // $C8BA CMP #$18
-      case 0x0c8bc: if (c.cycles >= end) { c.key = 0x0c8bc; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c8af; continue; } // $C8BC BNE $C8AF
+      case 0x0c8bc: if (c.cycles >= end) { c.key = 0x0c8bc; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c8af; continue; } // $C8BC BNE $C8AF
       case 0x0c8be: if (c.cycles >= end) { c.key = 0x0c8be; return -1; } c.cycles += 2; c.x = c.setNZ(0x01); // $C8BE LDX #$01
       case 0x0c8c0: if (c.cycles >= end) { c.key = 0x0c8c0; return -1; } c.cycles += 6; c.push(0xc8); c.push(0xc2); return 0x0ca2c; // $C8C0 JSR $CA2C
       case 0x0c8c3: if (c.cycles >= end) { c.key = 0x0c8c3; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C8C3 RTS
@@ -1049,7 +1050,7 @@ function b25(c, bus, ram, rom, end, pc) {
 function b26(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0c8d7: if (c.cycles >= end) { c.key = 0x0c8d7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c8e3; continue; } // $C8D7 BEQ $C8E3
+      case 0x0c8d7: if (c.cycles >= end) { c.key = 0x0c8d7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c8e3; continue; } // $C8D7 BEQ $C8E3
       case 0x0c8d9: if (c.cycles >= end) { c.key = 0x0c8d9; return -1; } c.cycles += 2; c.x = c.setNZ(0x40); // $C8D9 LDX #$40
       case 0x0c8db: if (c.cycles >= end) { c.key = 0x0c8db; return -1; } c.cycles += 2; c.y = c.setNZ(0xc9); // $C8DB LDY #$C9
       case 0x0c8dd: if (c.cycles >= end) { c.key = 0x0c8dd; return -1; } c.cycles += 6; c.push(0xc8); c.push(0xdf); return 0x1c9bc; // $C8DD JSR $C9BC
@@ -1073,9 +1074,9 @@ function b26(c, bus, ram, rom, end, pc) {
       case 0x0c904: if (c.cycles >= end) { c.key = 0x0c904; return -1; } c.cycles += 6; c.push(0xc9); c.push(0x06); return 0x1c9bc; // $C904 JSR $C9BC
       case 0x0c907: if (c.cycles >= end) { c.key = 0x0c907; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C907 RTS
       case 0x0c90b: if (c.cycles >= end) { c.key = 0x0c90b; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $C90B CMP #$0F
-      case 0x0c90d: if (c.cycles >= end) { c.key = 0x0c90d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0c928; } // $C90D BNE $C928
+      case 0x0c90d: if (c.cycles >= end) { c.key = 0x0c90d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c928; } // $C90D BNE $C928
       case 0x0c90f: if (c.cycles >= end) { c.key = 0x0c90f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1f]); // $C90F LDA $1F
-      case 0x0c911: if (c.cycles >= end) { c.key = 0x0c911; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c91e; continue; } // $C911 BNE $C91E
+      case 0x0c911: if (c.cycles >= end) { c.key = 0x0c911; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c91e; continue; } // $C911 BNE $C91E
       case 0x0c913: if (c.cycles >= end) { c.key = 0x0c913; return -1; } c.cycles += 2; c.x = c.setNZ(0x29); // $C913 LDX #$29
       case 0x0c915: if (c.cycles >= end) { c.key = 0x0c915; return -1; } c.cycles += 2; c.y = c.setNZ(0xc9); // $C915 LDY #$C9
       case 0x0c917: if (c.cycles >= end) { c.key = 0x0c917; return -1; } c.cycles += 6; c.push(0xc9); c.push(0x19); return 0x1c9bc; // $C917 JSR $C9BC
@@ -1135,18 +1136,18 @@ function b28(c, bus, ram, rom, end, pc) {
       case 0x0c983: if (c.cycles >= end) { c.key = 0x0c983; return -1; } c.cycles += 6; c.write(c.indirectY(0x03, false), c.a); // $C983 STA ($03),Y
       case 0x1c985: if (c.cycles >= end) { c.key = 0x1c985; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $C985* INX
       case 0x0c986: if (c.cycles >= end) { c.key = 0x0c986; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $C986 DEY
-      case 0x0c987: if (c.cycles >= end) { c.key = 0x0c987; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0c96a; } // $C987 BPL $C96A
+      case 0x0c987: if (c.cycles >= end) { c.key = 0x0c987; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0c96a; } // $C987 BPL $C96A
       case 0x0c989: if (c.cycles >= end) { c.key = 0x0c989; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C989 INY
       case 0x0c98a: if (c.cycles >= end) { c.key = 0x0c98a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C98A STA $F5
       case 0x1c98c: if (c.cycles >= end) { c.key = 0x1c98c; return -1; } c.cycles += 2;  // $C98C* NOP
       case 0x0c98d: if (c.cycles >= end) { c.key = 0x0c98d; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x03, true))); // $C98D LDA ($03),Y
       case 0x0c98f: if (c.cycles >= end) { c.key = 0x0c98f; return -1; } c.cycles += 2; c.cmp(c.a, 0x01); // $C98F CMP #$01
-      case 0x0c991: if (c.cycles >= end) { c.key = 0x0c991; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c99f; continue; } // $C991 BNE $C99F
+      case 0x0c991: if (c.cycles >= end) { c.key = 0x0c991; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c99f; continue; } // $C991 BNE $C99F
       case 0x0c993: if (c.cycles >= end) { c.key = 0x0c993; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $C993 LDA #$00
       case 0x0c995: if (c.cycles >= end) { c.key = 0x0c995; return -1; } c.cycles += 6; c.write(c.indirectY(0x03, false), c.a); // $C995 STA ($03),Y
       case 0x1c997: if (c.cycles >= end) { c.key = 0x1c997; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $C997* INY
       case 0x0c998: if (c.cycles >= end) { c.key = 0x0c998; return -1; } c.cycles += 2; c.cmp(c.y, 0x05); // $C998 CPY #$05
-      case 0x0c99a: if (c.cycles >= end) { c.key = 0x0c99a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0c98d; continue; } // $C99A BNE $C98D
+      case 0x0c99a: if (c.cycles >= end) { c.key = 0x0c99a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c98d; continue; } // $C99A BNE $C98D
       case 0x0c99c: if (c.cycles >= end) { c.key = 0x0c99c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $C99C STA $F5
       case 0x1c99e: if (c.cycles >= end) { c.key = 0x1c99e; return -1; } c.cycles += 2;  // $C99E* NOP
       case 0x0c99f: if (c.cycles >= end) { c.key = 0x0c99f; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $C99F RTS
@@ -1176,7 +1177,7 @@ function b29(c, bus, ram, rom, end, pc) {
       case 0x0c9d7: if (c.cycles >= end) { c.key = 0x0c9d7; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $C9D7 CMP #$FF
       case 0x0c9d9: if (c.cycles >= end) { c.key = 0x0c9d9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0ca25; } // $C9D9 BEQ $CA25
       case 0x0c9db: if (c.cycles >= end) { c.key = 0x0c9db; return -1; } c.cycles += 2; c.cmp(c.a, 0xfe); // $C9DB CMP #$FE
-      case 0x0c9dd: if (c.cycles >= end) { c.key = 0x0c9dd; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c9fc; continue; } // $C9DD BEQ $C9FC
+      case 0x0c9dd: if (c.cycles >= end) { c.key = 0x0c9dd; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c9fc; continue; } // $C9DD BEQ $C9FC
       case 0x0c9df: if (c.cycles >= end) { c.key = 0x0c9df; return -1; } c.cycles += 2; c.cmp(c.a, 0xfd); // $C9DF CMP #$FD
       case 0x0c9e1: if (c.cycles >= end) { c.key = 0x0c9e1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0ca0f; } // $C9E1 BEQ $CA0F
       case 0x0c9e3: if (c.cycles >= end) { c.key = 0x0c9e3; return -1; } c.cycles += 3; ram[0x07] = c.y; // $C9E3 STY $07
@@ -1185,7 +1186,7 @@ function b29(c, bus, ram, rom, end, pc) {
       case 0x0c9e9: if (c.cycles >= end) { c.key = 0x0c9e9; return -1; } c.cycles += 5; ram[0x08] = c.setNZ((ram[0x08] + 1) & 0xff); // $C9E9 INC $08
       case 0x0c9eb: if (c.cycles >= end) { c.key = 0x0c9eb; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x07]); // $C9EB LDY $07
       case 0x0c9ed: if (c.cycles >= end) { c.key = 0x0c9ed; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xc8]); // $C9ED LDA $C8
-      case 0x0c9ef: if (c.cycles >= end) { c.key = 0x0c9ef; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0c9d4; continue; } // $C9EF BEQ $C9D4
+      case 0x0c9ef: if (c.cycles >= end) { c.key = 0x0c9ef; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0c9d4; continue; } // $C9EF BEQ $C9D4
       case 0x0c9f1: if (c.cycles >= end) { c.key = 0x0c9f1; return -1; } c.cycles += 2; c.x = c.setNZ(0x0a); // $C9F1 LDX #$0A
       case 0x0c9f3: if (c.cycles >= end) { c.key = 0x0c9f3; return -1; } c.cycles += 6; c.push(0xc9); c.push(0xf5); return 0x0ca2c; // $C9F3 JSR $CA2C
       case 0x0c9f6: if (c.cycles >= end) { c.key = 0x0c9f6; return -1; } c.cycles += 3; pc = 0x0c9d4; continue; // $C9F6 JMP $C9D4
@@ -1222,7 +1223,7 @@ function b30(c, bus, ram, rom, end, pc) {
       case 0x0ca29: if (c.cycles >= end) { c.key = 0x0ca29; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $CA29 RTS
       case 0x0ca2c: if (c.cycles >= end) { c.key = 0x0ca2c; return -1; } c.cycles += 2;  // $CA2C NOP
       case 0x0ca2d: if (c.cycles >= end) { c.key = 0x0ca2d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $CA2D LDA $4003
-      case 0x0ca30: if (c.cycles >= end) { c.key = 0x0ca30; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0ca2d; continue; } // $CA30 BPL $CA2D
+      case 0x0ca30: if (c.cycles >= end) { c.key = 0x0ca30; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca2d; continue; } // $CA30 BPL $CA2D
       case 0x0ca32: if (c.cycles >= end) { c.key = 0x0ca32; return -1; } c.cycles += 2; c.pollI = c.p & 0x04; c.p &= ~0x04; // $CA32 CLI
       case 0x0ca33: if (c.cycles >= end) { c.key = 0x0ca33; return -1; } c.cycles += 2;  c.pollI = c.p & 0x04; if (c.cycles < end) { pc = interrupts(c, 0x0ca34); if (pc !== 0x0ca34) return pc; } pc = 0x0ca34; continue; // $CA33 NOP
       case 0x0ca34: if (c.cycles >= end) { c.key = 0x0ca34; return -1; } c.cycles += 2;  // $CA34 NOP
@@ -1231,7 +1232,7 @@ function b30(c, bus, ram, rom, end, pc) {
       case 0x0ca37: if (c.cycles >= end) { c.key = 0x0ca37; return -1; } c.cycles += 2; c.pollI = c.p & 0x04; c.p |= 0x04; // $CA37 SEI
       case 0x0ca38: if (c.cycles >= end) { c.key = 0x0ca38; return -1; } c.cycles += 6; c.push(0xca); c.push(0x3a); c.pollI = c.p & 0x04; return 0x0d045; // $CA38 JSR $D045
       case 0x0ca3b: if (c.cycles >= end) { c.key = 0x0ca3b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1a]); // $CA3B LDA $1A
-      case 0x0ca3d: if (c.cycles >= end) { c.key = 0x0ca3d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0ca49; } // $CA3D BEQ $CA49
+      case 0x0ca3d: if (c.cycles >= end) { c.key = 0x0ca3d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0ca49; } // $CA3D BEQ $CA49
       case 0x0ca3f: if (c.cycles >= end) { c.key = 0x0ca3f; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $CA3F TXA
       case 0x0ca40: if (c.cycles >= end) { c.key = 0x0ca40; return -1; } c.cycles += 3; c.push(c.a); // $CA40 PHA
       case 0x0ca41: if (c.cycles >= end) { c.key = 0x0ca41; return -1; } c.cycles += 6; c.push(0xca); c.push(0x43); return 0x0d06e; // $CA41 JSR $D06E
@@ -1247,9 +1248,9 @@ function b31(c, bus, ram, rom, end, pc) {
       case 0x0ca46: if (c.cycles >= end) { c.key = 0x0ca46; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $CA46 STA $F6
       case 0x0ca48: if (c.cycles >= end) { c.key = 0x0ca48; return -1; } c.cycles += 2;  // $CA48 NOP
       case 0x0ca49: if (c.cycles >= end) { c.key = 0x0ca49; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $CA49 LDA $4003
-      case 0x0ca4c: if (c.cycles >= end) { c.key = 0x0ca4c; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0ca49; continue; } // $CA4C BMI $CA49
+      case 0x0ca4c: if (c.cycles >= end) { c.key = 0x0ca4c; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca49; continue; } // $CA4C BMI $CA49
       case 0x0ca4e: if (c.cycles >= end) { c.key = 0x0ca4e; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $CA4E DEX
-      case 0x0ca4f: if (c.cycles >= end) { c.key = 0x0ca4f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0ca2d; } // $CA4F BNE $CA2D
+      case 0x0ca4f: if (c.cycles >= end) { c.key = 0x0ca4f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0ca2d; } // $CA4F BNE $CA2D
       case 0x0ca51: if (c.cycles >= end) { c.key = 0x0ca51; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $CA51 RTS
       case 0x0ca54: if (c.cycles >= end) { c.key = 0x0ca54; return -1; } c.cycles += 2;  // $CA54 NOP
       case 0x0ca55: if (c.cycles >= end) { c.key = 0x0ca55; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $CA55 LDX $1F
@@ -1261,18 +1262,18 @@ function b31(c, bus, ram, rom, end, pc) {
       case 0x0ca60: if (c.cycles >= end) { c.key = 0x0ca60; return -1; } c.cycles += 3; ram[0xf4] = c.a; // $CA60 STA $F4
       case 0x0ca62: if (c.cycles >= end) { c.key = 0x0ca62; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x29 + c.x) & 0xff)); // $CA62 LDA $29,X
       case 0x0ca64: if (c.cycles >= end) { c.key = 0x0ca64; return -1; } c.cycles += 2; c.cmp(c.a, 0x09); // $CA64 CMP #$09
-      case 0x0ca66: if (c.cycles >= end) { c.key = 0x0ca66; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0ca7e; continue; } // $CA66 BCS $CA7E
+      case 0x0ca66: if (c.cycles >= end) { c.key = 0x0ca66; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca7e; continue; } // $CA66 BCS $CA7E
       case 0x0ca68: if (c.cycles >= end) { c.key = 0x0ca68; return -1; } c.cycles += 2; c.y = c.setNZ(0x10); // $CA68 LDY #$10
       case 0x0ca6a: if (c.cycles >= end) { c.key = 0x0ca6a; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $CA6A LDA #$00
       case 0x0ca6c: if (c.cycles >= end) { c.key = 0x0ca6c; return -1; } c.cycles += 5; c.write((0x184c + c.y) & 0xffff, c.a); // $CA6C STA $184C,Y
       case 0x0ca6f: if (c.cycles >= end) { c.key = 0x0ca6f; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $CA6F DEY
-      case 0x0ca70: if (c.cycles >= end) { c.key = 0x0ca70; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0ca6c; continue; } // $CA70 BNE $CA6C
+      case 0x0ca70: if (c.cycles >= end) { c.key = 0x0ca70; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca6c; continue; } // $CA70 BNE $CA6C
       case 0x0ca72: if (c.cycles >= end) { c.key = 0x0ca72; return -1; } c.cycles += 4; c.y = c.setNZ(c.read((0x29 + c.x) & 0xff)); // $CA72 LDY $29,X
-      case 0x0ca74: if (c.cycles >= end) { c.key = 0x0ca74; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ca7d; continue; } // $CA74 BEQ $CA7D
+      case 0x0ca74: if (c.cycles >= end) { c.key = 0x0ca74; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca7d; continue; } // $CA74 BEQ $CA7D
       case 0x0ca76: if (c.cycles >= end) { c.key = 0x0ca76; return -1; } c.cycles += 2; c.a = c.setNZ(0xc8); // $CA76 LDA #$C8
       case 0x0ca78: if (c.cycles >= end) { c.key = 0x0ca78; return -1; } c.cycles += 6; c.write(c.indirectY(0xf3, false), c.a); // $CA78 STA ($F3),Y
       case 0x0ca7a: if (c.cycles >= end) { c.key = 0x0ca7a; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $CA7A DEY
-      case 0x0ca7b: if (c.cycles >= end) { c.key = 0x0ca7b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0ca78; continue; } // $CA7B BNE $CA78
+      case 0x0ca7b: if (c.cycles >= end) { c.key = 0x0ca7b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ca78; continue; } // $CA7B BNE $CA78
       case 0x0ca7d: if (c.cycles >= end) { c.key = 0x0ca7d; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $CA7D RTS
       case 0x0ca7e: if (c.cycles >= end) { c.key = 0x0ca7e; return -1; } c.cycles += 2; c.y = c.setNZ(0x09); // $CA7E LDY #$09
       case 0x0ca80: if (c.cycles >= end) { c.key = 0x0ca80; return -1; } c.cycles += 2; c.a = c.setNZ(0x53); return 0x0ca82; // $CA80 LDA #$53
@@ -1301,7 +1302,7 @@ function b32(c, bus, ram, rom, end, pc) {
       case 0x0caaa: if (c.cycles >= end) { c.key = 0x0caaa; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $CAAA LSR A
       case 0x0caab: if (c.cycles >= end) { c.key = 0x0caab; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $CAAB LSR A
       case 0x0caac: if (c.cycles >= end) { c.key = 0x0caac; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $CAAC TAY
-      case 0x0caad: if (c.cycles >= end) { c.key = 0x0caad; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cab3; continue; } // $CAAD BEQ $CAB3
+      case 0x0caad: if (c.cycles >= end) { c.key = 0x0caad; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cab3; continue; } // $CAAD BEQ $CAB3
       case 0x0caaf: if (c.cycles >= end) { c.key = 0x0caaf; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $CAAF INY
       case 0x0cab0: if (c.cycles >= end) { c.key = 0x0cab0; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CAB0 STA $F5
       case 0x0cab2: if (c.cycles >= end) { c.key = 0x0cab2; return -1; } c.cycles += 2;  // $CAB2 NOP
@@ -1335,7 +1336,7 @@ function b33(c, bus, ram, rom, end, pc) {
       case 0x0cadb: if (c.cycles >= end) { c.key = 0x0cadb; return -1; } c.cycles += 2;  // $CADB NOP
       case 0x0cadc: if (c.cycles >= end) { c.key = 0x0cadc; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x03]); // $CADC LDX $03
       case 0x0cade: if (c.cycles >= end) { c.key = 0x0cade; return -1; } c.cycles += 2; c.cmp(c.x, 0x0a); // $CADE CPX #$0A
-      case 0x0cae0: if (c.cycles >= end) { c.key = 0x0cae0; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0caef; continue; } // $CAE0 BCC $CAEF
+      case 0x0cae0: if (c.cycles >= end) { c.key = 0x0cae0; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0caef; continue; } // $CAE0 BCC $CAEF
       case 0x0cae2: if (c.cycles >= end) { c.key = 0x0cae2; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $CAE2 LDA $03
       case 0x0cae4: if (c.cycles >= end) { c.key = 0x0cae4; return -1; } c.cycles += 2; c.sbc(0x0a); // $CAE4 SBC #$0A
       case 0x0cae6: if (c.cycles >= end) { c.key = 0x0cae6; return -1; } c.cycles += 3; ram[0x03] = c.a; // $CAE6 STA $03
@@ -1353,7 +1354,7 @@ function b33(c, bus, ram, rom, end, pc) {
       case 0x0cafd: if (c.cycles >= end) { c.key = 0x0cafd; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CAFD STA $F5
       case 0x0caff: if (c.cycles >= end) { c.key = 0x0caff; return -1; } c.cycles += 2;  // $CAFF NOP
       case 0x0cb00: if (c.cycles >= end) { c.key = 0x0cb00; return -1; } c.cycles += 2; c.cmp(c.x, 0x01); // $CB00 CPX #$01
-      case 0x0cb02: if (c.cycles >= end) { c.key = 0x0cb02; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0cb19; } return 0x0cb04; // $CB02 BCC $CB19
+      case 0x0cb02: if (c.cycles >= end) { c.key = 0x0cb02; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cb19; } return 0x0cb04; // $CB02 BCC $CB19
       default: return pc;
     }
   }
@@ -1413,14 +1414,14 @@ function b35(c, bus, ram, rom, end, pc) {
       case 0x0cb51: if (c.cycles >= end) { c.key = 0x0cb51; return -1; } c.cycles += 6; c.write(c.indirectY(0x05, false), c.a); // $CB51 STA ($05),Y
       case 0x0cb53: if (c.cycles >= end) { c.key = 0x0cb53; return -1; } c.cycles += 5; ram[0x05] = c.setNZ((ram[0x05] + 1) & 0xff); // $CB53 INC $05
       case 0x1cb55: if (c.cycles >= end) { c.key = 0x1cb55; return -1; } c.cycles += 5; ram[0x03] = c.setNZ((ram[0x03] + 1) & 0xff); // $CB55* INC $03
-      case 0x1cb57: if (c.cycles >= end) { c.key = 0x1cb57; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cb5e; continue; } // $CB57* BNE $CB5E
+      case 0x1cb57: if (c.cycles >= end) { c.key = 0x1cb57; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cb5e; continue; } // $CB57* BNE $CB5E
       case 0x0cb59: if (c.cycles >= end) { c.key = 0x0cb59; return -1; } c.cycles += 5; ram[0x04] = c.setNZ((ram[0x04] + 1) & 0xff); // $CB59 INC $04
       case 0x0cb5b: if (c.cycles >= end) { c.key = 0x0cb5b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CB5B STA $F5
       case 0x1cb5d: if (c.cycles >= end) { c.key = 0x1cb5d; return -1; } c.cycles += 2;  // $CB5D* NOP
       case 0x0cb5e: if (c.cycles >= end) { c.key = 0x0cb5e; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $CB5E DEX
       case 0x0cb5f: if (c.cycles >= end) { c.key = 0x0cb5f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $CB5F LDA $05
       case 0x0cb61: if (c.cycles >= end) { c.key = 0x0cb61; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x07); // $CB61 AND #$07
-      case 0x0cb63: if (c.cycles >= end) { c.key = 0x0cb63; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0cb3f; } // $CB63 BNE $CB3F
+      case 0x0cb63: if (c.cycles >= end) { c.key = 0x0cb63; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cb3f; } // $CB63 BNE $CB3F
       case 0x0cb65: if (c.cycles >= end) { c.key = 0x0cb65; return -1; } c.cycles += 2; c.p &= ~0x01; // $CB65 CLC
       case 0x0cb66: if (c.cycles >= end) { c.key = 0x0cb66; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $CB66 LDA $05
       case 0x0cb68: if (c.cycles >= end) { c.key = 0x0cb68; return -1; } c.cycles += 2; c.adc(0x7f); // $CB68 ADC #$7F
@@ -1451,7 +1452,7 @@ function b36(c, bus, ram, rom, end, pc) {
       case 0x0cb87: if (c.cycles >= end) { c.key = 0x0cb87; return -1; } c.cycles += 6; c.write(c.indirectY(0x05, false), c.a); // $CB87 STA ($05),Y
       case 0x0cb89: if (c.cycles >= end) { c.key = 0x0cb89; return -1; } c.cycles += 5; ram[0x05] = c.setNZ((ram[0x05] - 1) & 0xff); // $CB89 DEC $05
       case 0x0cb8b: if (c.cycles >= end) { c.key = 0x0cb8b; return -1; } c.cycles += 5; ram[0x03] = c.setNZ((ram[0x03] + 1) & 0xff); // $CB8B INC $03
-      case 0x1cb8d: if (c.cycles >= end) { c.key = 0x1cb8d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cb94; continue; } // $CB8D* BNE $CB94
+      case 0x1cb8d: if (c.cycles >= end) { c.key = 0x1cb8d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cb94; continue; } // $CB8D* BNE $CB94
       case 0x0cb8f: if (c.cycles >= end) { c.key = 0x0cb8f; return -1; } c.cycles += 5; ram[0x04] = c.setNZ((ram[0x04] + 1) & 0xff); // $CB8F INC $04
       case 0x0cb91: if (c.cycles >= end) { c.key = 0x0cb91; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CB91 STA $F5
       case 0x0cb93: if (c.cycles >= end) { c.key = 0x0cb93; return -1; } c.cycles += 2;  // $CB93 NOP
@@ -1459,7 +1460,7 @@ function b36(c, bus, ram, rom, end, pc) {
       case 0x0cb95: if (c.cycles >= end) { c.key = 0x0cb95; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $CB95 LDA $05
       case 0x0cb97: if (c.cycles >= end) { c.key = 0x0cb97; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x07); // $CB97 AND #$07
       case 0x0cb99: if (c.cycles >= end) { c.key = 0x0cb99; return -1; } c.cycles += 2; c.cmp(c.a, 0x07); // $CB99 CMP #$07
-      case 0x0cb9b: if (c.cycles >= end) { c.key = 0x0cb9b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0cb75; } // $CB9B BNE $CB75
+      case 0x0cb9b: if (c.cycles >= end) { c.key = 0x0cb9b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cb75; } // $CB9B BNE $CB75
       case 0x0cb9d: if (c.cycles >= end) { c.key = 0x0cb9d; return -1; } c.cycles += 2; c.p |= 0x01; // $CB9D SEC
       case 0x0cb9e: if (c.cycles >= end) { c.key = 0x0cb9e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $CB9E LDA $05
       case 0x0cba0: if (c.cycles >= end) { c.key = 0x0cba0; return -1; } c.cycles += 2; c.sbc(0x77); // $CBA0 SBC #$77
@@ -1468,7 +1469,7 @@ function b36(c, bus, ram, rom, end, pc) {
       case 0x0cba6: if (c.cycles >= end) { c.key = 0x0cba6; return -1; } c.cycles += 2; c.sbc(0x00); // $CBA6 SBC #$00
       case 0x0cba8: if (c.cycles >= end) { c.key = 0x0cba8; return -1; } c.cycles += 3; ram[0x06] = c.a; // $CBA8 STA $06
       case 0x0cbaa: if (c.cycles >= end) { c.key = 0x0cbaa; return -1; } c.cycles += 2; c.cmp(c.x, 0x00); // $CBAA CPX #$00
-      case 0x0cbac: if (c.cycles >= end) { c.key = 0x0cbac; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0cb3f; } // $CBAC BNE $CB3F
+      case 0x0cbac: if (c.cycles >= end) { c.key = 0x0cbac; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cb3f; } // $CBAC BNE $CB3F
       case 0x0cbae: if (c.cycles >= end) { c.key = 0x0cbae; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x63]); // $CBAE LDA $63
       case 0x0cbb0: if (c.cycles >= end) { c.key = 0x0cbb0; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); return 0x0cbb2; // $CBB0 AND #$0F
       default: return pc;
@@ -1483,9 +1484,9 @@ function b37(c, bus, ram, rom, end, pc) {
       case 0x0cbb5: if (c.cycles >= end) { c.key = 0x0cbb5; return -1; } c.cycles += 3; c.push(c.a); // $CBB5 PHA
       case 0x1cbb6: if (c.cycles >= end) { c.key = 0x1cbb6; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $CBB6* LDA $4003
       case 0x0cbb9: if (c.cycles >= end) { c.key = 0x0cbb9; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $CBB9 AND #$40
-      case 0x0cbbb: if (c.cycles >= end) { c.key = 0x0cbbb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cbc4; continue; } // $CBBB BEQ $CBC4
+      case 0x0cbbb: if (c.cycles >= end) { c.key = 0x0cbbb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cbc4; continue; } // $CBBB BEQ $CBC4
       case 0x0cbbd: if (c.cycles >= end) { c.key = 0x0cbbd; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1f]); // $CBBD LDA $1F
-      case 0x0cbbf: if (c.cycles >= end) { c.key = 0x0cbbf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cbd4; continue; } // $CBBF BNE $CBD4
+      case 0x0cbbf: if (c.cycles >= end) { c.key = 0x0cbbf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cbd4; continue; } // $CBBF BNE $CBD4
       case 0x0cbc1: if (c.cycles >= end) { c.key = 0x0cbc1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CBC1 STA $F5
       case 0x0cbc3: if (c.cycles >= end) { c.key = 0x0cbc3; return -1; } c.cycles += 2;  // $CBC3 NOP
       case 0x0cbc4: if (c.cycles >= end) { c.key = 0x0cbc4; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xf3]); // $CBC4 LDX $F3
@@ -1509,7 +1510,7 @@ function b37(c, bus, ram, rom, end, pc) {
       case 0x0cbf3: if (c.cycles >= end) { c.key = 0x0cbf3; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $CBF3 AND #$0F
       case 0x0cbf5: if (c.cycles >= end) { c.key = 0x0cbf5; return -1; } c.cycles += 6; c.write(c.indirectY(0x03, false), c.a); // $CBF5 STA ($03),Y
       case 0x1cbf7: if (c.cycles >= end) { c.key = 0x1cbf7; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $CBF7* INY
-      case 0x0cbf8: if (c.cycles >= end) { c.key = 0x0cbf8; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cbf1; continue; } return 0x0cbfa; // $CBF8 BNE $CBF1
+      case 0x0cbf8: if (c.cycles >= end) { c.key = 0x0cbf8; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cbf1; continue; } return 0x0cbfa; // $CBF8 BNE $CBF1
       default: return pc;
     }
   }
@@ -1533,7 +1534,7 @@ function b38(c, bus, ram, rom, end, pc) {
       case 0x0cc15: if (c.cycles >= end) { c.key = 0x0cc15; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CC15 STA $F5
       case 0x0cc17: if (c.cycles >= end) { c.key = 0x0cc17; return -1; } c.cycles += 2;  // $CC17 NOP
       case 0x0cc18: if (c.cycles >= end) { c.key = 0x0cc18; return -1; } c.cycles += 2; c.cmp(c.y, 0x06); // $CC18 CPY #$06
-      case 0x0cc1a: if (c.cycles >= end) { c.key = 0x0cc1a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0cc27; continue; } // $CC1A BCC $CC27
+      case 0x0cc1a: if (c.cycles >= end) { c.key = 0x0cc1a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cc27; continue; } // $CC1A BCC $CC27
       case 0x0cc1c: if (c.cycles >= end) { c.key = 0x0cc1c; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $CC1C TYA
       case 0x0cc1d: if (c.cycles >= end) { c.key = 0x0cc1d; return -1; } c.cycles += 2; c.p |= 0x01; // $CC1D SEC
       case 0x0cc1e: if (c.cycles >= end) { c.key = 0x0cc1e; return -1; } c.cycles += 2; c.sbc(0x06); // $CC1E SBC #$06
@@ -1559,14 +1560,14 @@ function b39(c, bus, ram, rom, end, pc) {
       case 0x0cc3a: if (c.cycles >= end) { c.key = 0x0cc3a; return -1; } c.cycles += 2;  // $CC3A NOP
       case 0x0cc3b: if (c.cycles >= end) { c.key = 0x0cc3b; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x03, true))); // $CC3B LDA ($03),Y
       case 0x0cc3d: if (c.cycles >= end) { c.key = 0x0cc3d; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $CC3D CMP #$FF
-      case 0x0cc3f: if (c.cycles >= end) { c.key = 0x0cc3f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cc59; continue; } // $CC3F BEQ $CC59
+      case 0x0cc3f: if (c.cycles >= end) { c.key = 0x0cc3f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cc59; continue; } // $CC3F BEQ $CC59
       case 0x0cc41: if (c.cycles >= end) { c.key = 0x0cc41; return -1; } c.cycles += 5; c.write((0x0202 + c.x) & 0xffff, c.a); // $CC41 STA $0202,X
       case 0x0cc44: if (c.cycles >= end) { c.key = 0x0cc44; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $CC44 INY
       case 0x0cc45: if (c.cycles >= end) { c.key = 0x0cc45; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $CC45 INX
       case 0x0cc46: if (c.cycles >= end) { c.key = 0x0cc46; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $CC46 TXA
       case 0x0cc47: if (c.cycles >= end) { c.key = 0x0cc47; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $CC47 AND #$03
       case 0x0cc49: if (c.cycles >= end) { c.key = 0x0cc49; return -1; } c.cycles += 2; c.cmp(c.a, 0x03); // $CC49 CMP #$03
-      case 0x0cc4b: if (c.cycles >= end) { c.key = 0x0cc4b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cc3b; continue; } // $CC4B BNE $CC3B
+      case 0x0cc4b: if (c.cycles >= end) { c.key = 0x0cc4b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cc3b; continue; } // $CC4B BNE $CC3B
       case 0x0cc4d: if (c.cycles >= end) { c.key = 0x0cc4d; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $CC4D INX
       case 0x0cc4e: if (c.cycles >= end) { c.key = 0x0cc4e; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $CC4E LDA #$00
       case 0x0cc50: if (c.cycles >= end) { c.key = 0x0cc50; return -1; } c.cycles += 5; c.write((0x0202 + c.x) & 0xffff, c.a); // $CC50 STA $0202,X
@@ -1574,7 +1575,7 @@ function b39(c, bus, ram, rom, end, pc) {
       case 0x0cc59: if (c.cycles >= end) { c.key = 0x0cc59; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $CC59 LDA #$00
       case 0x0cc5b: if (c.cycles >= end) { c.key = 0x0cc5b; return -1; } c.cycles += 5; c.write((0x0202 + c.x) & 0xffff, c.a); // $CC5B STA $0202,X
       case 0x0cc5e: if (c.cycles >= end) { c.key = 0x0cc5e; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $CC5E INX
-      case 0x0cc5f: if (c.cycles >= end) { c.key = 0x0cc5f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cc59; continue; } // $CC5F BNE $CC59
+      case 0x0cc5f: if (c.cycles >= end) { c.key = 0x0cc5f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cc59; continue; } // $CC5F BNE $CC59
       case 0x0cc61: if (c.cycles >= end) { c.key = 0x0cc61; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $CC61 RTS
       case 0x0cc64: if (c.cycles >= end) { c.key = 0x0cc64; return -1; } c.cycles += 2;  // $CC64 NOP
       case 0x0cc65: if (c.cycles >= end) { c.key = 0x0cc65; return -1; } c.cycles += 2; c.a = c.setNZ(0x02); // $CC65 LDA #$02
@@ -1587,7 +1588,7 @@ function b39(c, bus, ram, rom, end, pc) {
       case 0x0cc73: if (c.cycles >= end) { c.key = 0x0cc73; return -1; } c.cycles += 2;  // $CC73 NOP
       case 0x0cc74: if (c.cycles >= end) { c.key = 0x0cc74; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x0d]); // $CC74 LDY $0D
       case 0x0cc76: if (c.cycles >= end) { c.key = 0x0cc76; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x0b, true))); // $CC76 LDA ($0B),Y
-      case 0x0cc78: if (c.cycles >= end) { c.key = 0x0cc78; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0cc96; } return 0x0cc7a; // $CC78 BEQ $CC96
+      case 0x0cc78: if (c.cycles >= end) { c.key = 0x0cc78; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cc96; } return 0x0cc7a; // $CC78 BEQ $CC96
       default: return pc;
     }
   }
@@ -1612,14 +1613,14 @@ function b40(c, bus, ram, rom, end, pc) {
       case 0x0cc99: if (c.cycles >= end) { c.key = 0x0cc99; return -1; } c.cycles += 2;  // $CC99 NOP
       case 0x0cc9a: if (c.cycles >= end) { c.key = 0x0cc9a; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $CC9A LDA #$00
       case 0x0cc9c: if (c.cycles >= end) { c.key = 0x0cc9c; return -1; } c.cycles += 3; ram[0x0e] = c.a; // $CC9C STA $0E
-      case 0x0cc9e: if (c.cycles >= end) { c.key = 0x0cc9e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ccb2; continue; } // $CC9E BEQ $CCB2
+      case 0x0cc9e: if (c.cycles >= end) { c.key = 0x0cc9e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ccb2; continue; } // $CC9E BEQ $CCB2
       case 0x0cca0: if (c.cycles >= end) { c.key = 0x0cca0; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CCA0 STA $F5
       case 0x0cca2: if (c.cycles >= end) { c.key = 0x0cca2; return -1; } c.cycles += 2;  // $CCA2 NOP
       case 0x0cca3: if (c.cycles >= end) { c.key = 0x0cca3; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $CCA3 LDA #$00
       case 0x0cca5: if (c.cycles >= end) { c.key = 0x0cca5; return -1; } c.cycles += 3; ram[0x0e] = c.a; // $CCA5 STA $0E
       case 0x0cca7: if (c.cycles >= end) { c.key = 0x0cca7; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $CCA7 LDA $05
       case 0x0cca9: if (c.cycles >= end) { c.key = 0x0cca9; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $CCA9 AND #$F8
-      case 0x0ccab: if (c.cycles >= end) { c.key = 0x0ccab; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0ccb2; continue; } // $CCAB BNE $CCB2
+      case 0x0ccab: if (c.cycles >= end) { c.key = 0x0ccab; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ccb2; continue; } // $CCAB BNE $CCB2
       case 0x0ccad: if (c.cycles >= end) { c.key = 0x0ccad; return -1; } c.cycles += 5; ram[0x0e] = c.setNZ((ram[0x0e] + 1) & 0xff); // $CCAD INC $0E
       case 0x0ccaf: if (c.cycles >= end) { c.key = 0x0ccaf; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CCAF STA $F5
       case 0x0ccb1: if (c.cycles >= end) { c.key = 0x0ccb1; return -1; } c.cycles += 2;  // $CCB1 NOP
@@ -1679,13 +1680,13 @@ function b42(c, bus, ram, rom, end, pc) {
       case 0x0ccfa: if (c.cycles >= end) { c.key = 0x0ccfa; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $CCFA LDA $03
       case 0x0ccfc: if (c.cycles >= end) { c.key = 0x0ccfc; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $CCFC AND #$0F
       case 0x0ccfe: if (c.cycles >= end) { c.key = 0x0ccfe; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $CCFE CMP #$0F
-      case 0x0cd00: if (c.cycles >= end) { c.key = 0x0cd00; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0cd37; } // $CD00 BEQ $CD37
+      case 0x0cd00: if (c.cycles >= end) { c.key = 0x0cd00; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cd37; } // $CD00 BEQ $CD37
       case 0x0cd02: if (c.cycles >= end) { c.key = 0x0cd02; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $CD02 LDY #$00
       case 0x0cd04: if (c.cycles >= end) { c.key = 0x0cd04; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x07]); // $CD04 LDA $07
       case 0x0cd06: if (c.cycles >= end) { c.key = 0x0cd06; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $CD06 TAX
       case 0x0cd07: if (c.cycles >= end) { c.key = 0x0cd07; return -1; } c.cycles += 6; c.push(0xcd); c.push(0x09); return 0x1cd95; // $CD07 JSR $CD95
       case 0x0cd0a: if (c.cycles >= end) { c.key = 0x0cd0a; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x0e]); // $CD0A LDY $0E
-      case 0x0cd0c: if (c.cycles >= end) { c.key = 0x0cd0c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0cd1a; continue; } // $CD0C BNE $CD1A
+      case 0x0cd0c: if (c.cycles >= end) { c.key = 0x0cd0c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cd1a; continue; } // $CD0C BNE $CD1A
       case 0x0cd0e: if (c.cycles >= end) { c.key = 0x0cd0e; return -1; } c.cycles += 2; c.y = c.setNZ(0x20); // $CD0E LDY #$20
       case 0x0cd10: if (c.cycles >= end) { c.key = 0x0cd10; return -1; } c.cycles += 2; c.p &= ~0x01; // $CD10 CLC
       case 0x0cd11: if (c.cycles >= end) { c.key = 0x0cd11; return -1; } c.cycles += 2; c.adc(0x1d); // $CD11 ADC #$1D
@@ -1701,7 +1702,7 @@ function b42(c, bus, ram, rom, end, pc) {
       case 0x0cd23: if (c.cycles >= end) { c.key = 0x0cd23; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $CD23 LDA $08
       case 0x0cd25: if (c.cycles >= end) { c.key = 0x0cd25; return -1; } c.cycles += 6; c.push(0xcd); c.push(0x27); return 0x0cdaa; // $CD25 JSR $CDAA
       case 0x0cd28: if (c.cycles >= end) { c.key = 0x0cd28; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x0e]); // $CD28 LDY $0E
-      case 0x0cd2a: if (c.cycles >= end) { c.key = 0x0cd2a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0cd90; } // $CD2A BNE $CD90
+      case 0x0cd2a: if (c.cycles >= end) { c.key = 0x0cd2a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cd90; } // $CD2A BNE $CD90
       case 0x0cd2c: if (c.cycles >= end) { c.key = 0x0cd2c; return -1; } c.cycles += 2; c.y = c.setNZ(0x20); // $CD2C LDY #$20
       case 0x0cd2e: if (c.cycles >= end) { c.key = 0x0cd2e; return -1; } c.cycles += 6; c.push(0xcd); c.push(0x30); return 0x0cdaa; // $CD2E JSR $CDAA
       case 0x0cd31: if (c.cycles >= end) { c.key = 0x0cd31; return -1; } c.cycles += 3; return 0x0cd90; // $CD31 JMP $CD90
@@ -1810,7 +1811,7 @@ function b45(c, bus, ram, rom, end, pc) {
       case 0x0cf3c: if (c.cycles >= end) { c.key = 0x0cf3c; return -1; } c.cycles += 3; c.push(c.a); // $CF3C PHA
       case 0x1cf3d: if (c.cycles >= end) { c.key = 0x1cf3d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $CF3D* LDA $4003
       case 0x0cf40: if (c.cycles >= end) { c.key = 0x0cf40; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $CF40 AND #$10
-      case 0x0cf42: if (c.cycles >= end) { c.key = 0x0cf42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cf35; continue; } // $CF42 BEQ $CF35
+      case 0x0cf42: if (c.cycles >= end) { c.key = 0x0cf42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cf35; continue; } // $CF42 BEQ $CF35
       case 0x0cf44: if (c.cycles >= end) { c.key = 0x0cf44; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $CF44 TXA
       case 0x0cf45: if (c.cycles >= end) { c.key = 0x0cf45; return -1; } c.cycles += 3; c.push(c.a); // $CF45 PHA
       case 0x1cf46: if (c.cycles >= end) { c.key = 0x1cf46; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $CF46* TYA
@@ -1818,7 +1819,7 @@ function b45(c, bus, ram, rom, end, pc) {
       case 0x0cf48: if (c.cycles >= end) { c.key = 0x0cf48; return -1; } c.cycles += 2;  // $CF48 NOP
       case 0x0cf49: if (c.cycles >= end) { c.key = 0x0cf49; return -1; } c.cycles += 2; c.p &= ~0x08; // $CF49 CLD
       case 0x0cf4a: if (c.cycles >= end) { c.key = 0x0cf4a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x01]); // $CF4A LDA $01
-      case 0x0cf4c: if (c.cycles >= end) { c.key = 0x0cf4c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0cf8e; } // $CF4C BEQ $CF8E
+      case 0x0cf4c: if (c.cycles >= end) { c.key = 0x0cf4c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cf8e; } // $CF4C BEQ $CF8E
       case 0x0cf4e: if (c.cycles >= end) { c.key = 0x0cf4e; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4004)); // $CF4E LDA $4004
       case 0x0cf51: if (c.cycles >= end) { c.key = 0x0cf51; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $CF51 EOR #$FF
       case 0x0cf53: if (c.cycles >= end) { c.key = 0x0cf53; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xe0); return 0x0cf55; // $CF53 AND #$E0
@@ -1839,20 +1840,20 @@ function b46(c, bus, ram, rom, end, pc) {
       case 0x0cf5d: if (c.cycles >= end) { c.key = 0x0cf5d; return -1; } c.cycles += 6; c.push(0xcf); c.push(0x5f); return 0x0d034; // $CF5D JSR $D034
       case 0x0cf60: if (c.cycles >= end) { c.key = 0x0cf60; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $CF60 LDA $4002
       case 0x0cf63: if (c.cycles >= end) { c.key = 0x0cf63; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xc0); // $CF63 AND #$C0
-      case 0x0cf65: if (c.cycles >= end) { c.key = 0x0cf65; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cf8e; continue; } // $CF65 BEQ $CF8E
+      case 0x0cf65: if (c.cycles >= end) { c.key = 0x0cf65; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cf8e; continue; } // $CF65 BEQ $CF8E
       case 0x0cf67: if (c.cycles >= end) { c.key = 0x0cf67; return -1; } c.cycles += 3; ram[0x26] = c.a; // $CF67 STA $26
       case 0x0cf69: if (c.cycles >= end) { c.key = 0x0cf69; return -1; } c.cycles += 6; c.push(0xcf); c.push(0x6b); return 0x0d034; // $CF69 JSR $D034
       case 0x0cf6c: if (c.cycles >= end) { c.key = 0x0cf6c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $CF6C LDA $4002
       case 0x0cf6f: if (c.cycles >= end) { c.key = 0x0cf6f; return -1; } c.cycles += 3; c.a = c.setNZ(c.a & ram[0x26]); // $CF6F AND $26
-      case 0x0cf71: if (c.cycles >= end) { c.key = 0x0cf71; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cf8e; continue; } // $CF71 BEQ $CF8E
+      case 0x0cf71: if (c.cycles >= end) { c.key = 0x0cf71; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cf8e; continue; } // $CF71 BEQ $CF8E
       case 0x0cf73: if (c.cycles >= end) { c.key = 0x0cf73; return -1; } c.cycles += 6; c.push(0xcf); c.push(0x75); return 0x0d034; // $CF73 JSR $D034
       case 0x0cf76: if (c.cycles >= end) { c.key = 0x0cf76; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $CF76 LDA $4002
       case 0x0cf79: if (c.cycles >= end) { c.key = 0x0cf79; return -1; } c.cycles += 3; c.a = c.setNZ(c.a & ram[0x26]); // $CF79 AND $26
-      case 0x0cf7b: if (c.cycles >= end) { c.key = 0x0cf7b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cf8e; continue; } // $CF7B BEQ $CF8E
+      case 0x0cf7b: if (c.cycles >= end) { c.key = 0x0cf7b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cf8e; continue; } // $CF7B BEQ $CF8E
       case 0x0cf7d: if (c.cycles >= end) { c.key = 0x0cf7d; return -1; } c.cycles += 6; c.push(0xcf); c.push(0x7f); return 0x0d034; // $CF7D JSR $D034
       case 0x0cf80: if (c.cycles >= end) { c.key = 0x0cf80; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $CF80 LDA $4002
       case 0x0cf83: if (c.cycles >= end) { c.key = 0x0cf83; return -1; } c.cycles += 3; c.a = c.setNZ(c.a & ram[0x26]); // $CF83 AND $26
-      case 0x0cf85: if (c.cycles >= end) { c.key = 0x0cf85; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0cf8e; continue; } // $CF85 BEQ $CF8E
+      case 0x0cf85: if (c.cycles >= end) { c.key = 0x0cf85; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cf8e; continue; } // $CF85 BEQ $CF8E
       case 0x0cf87: if (c.cycles >= end) { c.key = 0x0cf87; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $CF87 LDA #$01
       case 0x0cf89: if (c.cycles >= end) { c.key = 0x0cf89; return -1; } c.cycles += 3; ram[0xf9] = c.a; // $CF89 STA $F9
       case 0x0cf8b: if (c.cycles >= end) { c.key = 0x0cf8b; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $CF8B STA $F6
@@ -1877,13 +1878,13 @@ function b47(c, bus, ram, rom, end, pc) {
       case 0x0cf9e: if (c.cycles >= end) { c.key = 0x0cf9e; return -1; } c.cycles += 4; c.write(0x4003, c.a); // $CF9E STA $4003
       case 0x0cfa1: if (c.cycles >= end) { c.key = 0x0cfa1; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x02]); // $CFA1 LDA $02
       case 0x0cfa3: if (c.cycles >= end) { c.key = 0x0cfa3; return -1; } c.cycles += 2; c.cmp(c.a, 0x80); // $CFA3 CMP #$80
-      case 0x0cfa5: if (c.cycles >= end) { c.key = 0x0cfa5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0cfd8; } // $CFA5 BEQ $CFD8
+      case 0x0cfa5: if (c.cycles >= end) { c.key = 0x0cfa5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cfd8; } // $CFA5 BEQ $CFD8
       case 0x0cfa7: if (c.cycles >= end) { c.key = 0x0cfa7; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $CFA7 LDX #$00
       case 0x0cfa9: if (c.cycles >= end) { c.key = 0x0cfa9; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $CFA9 LDA $4003
       case 0x0cfac: if (c.cycles >= end) { c.key = 0x0cfac; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $CFAC EOR #$FF
       case 0x0cfae: if (c.cycles >= end) { c.key = 0x0cfae; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $CFAE AND #$0F
       case 0x0cfb0: if (c.cycles >= end) { c.key = 0x0cfb0; return -1; } c.cycles += 5; ram[0x26] = c.asl(ram[0x26]); // $CFB0 ASL $26
-      case 0x0cfb2: if (c.cycles >= end) { c.key = 0x0cfb2; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0cfb9; continue; } // $CFB2 BCC $CFB9
+      case 0x0cfb2: if (c.cycles >= end) { c.key = 0x0cfb2; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cfb9; continue; } // $CFB2 BCC $CFB9
       case 0x0cfb4: if (c.cycles >= end) { c.key = 0x0cfb4; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $CFB4 LSR A
       case 0x0cfb5: if (c.cycles >= end) { c.key = 0x0cfb5; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $CFB5 LSR A
       case 0x0cfb6: if (c.cycles >= end) { c.key = 0x0cfb6; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CFB6 STA $F5
@@ -1895,7 +1896,7 @@ function b47(c, bus, ram, rom, end, pc) {
       case 0x0cfc0: if (c.cycles >= end) { c.key = 0x0cfc0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0d003; } // $CFC0 BEQ $D003
       case 0x0cfc2: if (c.cycles >= end) { c.key = 0x0cfc2; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $CFC2 INX
       case 0x0cfc3: if (c.cycles >= end) { c.key = 0x0cfc3; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $CFC3 CMP #$02
-      case 0x0cfc5: if (c.cycles >= end) { c.key = 0x0cfc5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0cff8; } // $CFC5 BEQ $CFF8
+      case 0x0cfc5: if (c.cycles >= end) { c.key = 0x0cfc5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0cff8; } // $CFC5 BEQ $CFF8
       case 0x0cfc7: if (c.cycles >= end) { c.key = 0x0cfc7; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $CFC7 INX
       case 0x0cfc8: if (c.cycles >= end) { c.key = 0x0cfc8; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CFC8 STA $F5
       case 0x0cfca: if (c.cycles >= end) { c.key = 0x0cfca; return -1; } c.cycles += 2;  // $CFCA NOP
@@ -1908,7 +1909,7 @@ function b48(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0cfcd: if (c.cycles >= end) { c.key = 0x0cfcd; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $CFCD CMP #$02
-      case 0x0cfcf: if (c.cycles >= end) { c.key = 0x0cfcf; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0cff0; continue; } // $CFCF BCS $CFF0
+      case 0x0cfcf: if (c.cycles >= end) { c.key = 0x0cfcf; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0cff0; continue; } // $CFCF BCS $CFF0
       case 0x0cfd1: if (c.cycles >= end) { c.key = 0x0cfd1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $CFD1 STA $F5
       case 0x0cfd3: if (c.cycles >= end) { c.key = 0x0cfd3; return -1; } c.cycles += 2;  // $CFD3 NOP
       case 0x0cfd4: if (c.cycles >= end) { c.key = 0x0cfd4; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $CFD4 RTS
@@ -1936,7 +1937,7 @@ function b48(c, bus, ram, rom, end, pc) {
       case 0x0d006: if (c.cycles >= end) { c.key = 0x0d006; return -1; } c.cycles += 2; c.p &= ~0x01; // $D006 CLC
       case 0x0d007: if (c.cycles >= end) { c.key = 0x0d007; return -1; } c.cycles += 4; c.adc(c.read(c.indexed(0xd05c, c.x))); // $D007 ADC $D05C,X
       case 0x0d00a: if (c.cycles >= end) { c.key = 0x0d00a; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xd064, c.y))); // $D00A CMP $D064,Y
-      case 0x0d00d: if (c.cycles >= end) { c.key = 0x0d00d; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0d015; } // $D00D BCC $D015
+      case 0x0d00d: if (c.cycles >= end) { c.key = 0x0d00d; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d015; } // $D00D BCC $D015
       case 0x0d00f: if (c.cycles >= end) { c.key = 0x0d00f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xd064, c.y))); // $D00F LDA $D064,Y
       case 0x0d012: if (c.cycles >= end) { c.key = 0x0d012; return -1; } c.cycles += 3; ram[0xf5] = c.a; return 0x0d014; // $D012 STA $F5
       default: return pc;
@@ -1951,7 +1952,7 @@ function b49(c, bus, ram, rom, end, pc) {
       case 0x0d017: if (c.cycles >= end) { c.key = 0x0d017; return -1; } c.cycles += 2; c.p &= ~0x08; // $D017 CLD
       case 0x0d018: if (c.cycles >= end) { c.key = 0x0d018; return -1; } c.cycles += 5; ram[0x1e] = c.setNZ((ram[0x1e] - 1) & 0xff); // $D018 DEC $1E
       case 0x0d01a: if (c.cycles >= end) { c.key = 0x0d01a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $D01A LDA $1B
-      case 0x0d01c: if (c.cycles >= end) { c.key = 0x0d01c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d02f; continue; } // $D01C BNE $D02F
+      case 0x0d01c: if (c.cycles >= end) { c.key = 0x0d01c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d02f; continue; } // $D01C BNE $D02F
       case 0x0d01e: if (c.cycles >= end) { c.key = 0x0d01e; return -1; } c.cycles += 4; c.write(0x4000, c.a); // $D01E STA $4000
       case 0x0d021: if (c.cycles >= end) { c.key = 0x0d021; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $D021 LDA #$01
       case 0x0d023: if (c.cycles >= end) { c.key = 0x0d023; return -1; } c.cycles += 3; ram[0x1a] = c.a; // $D023 STA $1A
@@ -1968,14 +1969,14 @@ function b49(c, bus, ram, rom, end, pc) {
       case 0x0d03c: if (c.cycles >= end) { c.key = 0x0d03c; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xff]); // $D03C LDA $FF
       case 0x0d03e: if (c.cycles >= end) { c.key = 0x0d03e; return -1; } c.cycles += 2;  // $D03E NOP
       case 0x0d03f: if (c.cycles >= end) { c.key = 0x0d03f; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $D03F DEX
-      case 0x0d040: if (c.cycles >= end) { c.key = 0x0d040; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d03a; continue; } // $D040 BNE $D03A
+      case 0x0d040: if (c.cycles >= end) { c.key = 0x0d040; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d03a; continue; } // $D040 BNE $D03A
       case 0x0d042: if (c.cycles >= end) { c.key = 0x0d042; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D042 RTS
       case 0x0d045: if (c.cycles >= end) { c.key = 0x0d045; return -1; } c.cycles += 2;  // $D045 NOP
       case 0x0d046: if (c.cycles >= end) { c.key = 0x0d046; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xf9]); // $D046 LDA $F9
-      case 0x0d048: if (c.cycles >= end) { c.key = 0x0d048; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d05b; } // $D048 BEQ $D05B
+      case 0x0d048: if (c.cycles >= end) { c.key = 0x0d048; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d05b; } // $D048 BEQ $D05B
       case 0x0d04a: if (c.cycles >= end) { c.key = 0x0d04a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $D04A LDA $4002
       case 0x0d04d: if (c.cycles >= end) { c.key = 0x0d04d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xc0); // $D04D AND #$C0
-      case 0x0d04f: if (c.cycles >= end) { c.key = 0x0d04f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d05b; } // $D04F BNE $D05B
+      case 0x0d04f: if (c.cycles >= end) { c.key = 0x0d04f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d05b; } // $D04F BNE $D05B
       case 0x0d051: if (c.cycles >= end) { c.key = 0x0d051; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $D051 LDA #$00
       case 0x0d053: if (c.cycles >= end) { c.key = 0x0d053; return -1; } c.cycles += 3; ram[0xf9] = c.a; return 0x0d055; // $D053 STA $F9
       default: return pc;
@@ -1991,19 +1992,19 @@ function b50(c, bus, ram, rom, end, pc) {
       case 0x0d05b: if (c.cycles >= end) { c.key = 0x0d05b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D05B RTS
       case 0x0d06e: if (c.cycles >= end) { c.key = 0x0d06e; return -1; } c.cycles += 2;  // $D06E NOP
       case 0x0d06f: if (c.cycles >= end) { c.key = 0x0d06f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1a]); // $D06F LDA $1A
-      case 0x0d071: if (c.cycles >= end) { c.key = 0x0d071; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d091; continue; } // $D071 BEQ $D091
+      case 0x0d071: if (c.cycles >= end) { c.key = 0x0d071; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d091; continue; } // $D071 BEQ $D091
       case 0x0d073: if (c.cycles >= end) { c.key = 0x0d073; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1c]); // $D073 LDA $1C
-      case 0x0d075: if (c.cycles >= end) { c.key = 0x0d075; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d080; continue; } // $D075 BNE $D080
+      case 0x0d075: if (c.cycles >= end) { c.key = 0x0d075; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d080; continue; } // $D075 BNE $D080
       case 0x0d077: if (c.cycles >= end) { c.key = 0x0d077; return -1; } c.cycles += 6; c.push(0xd0); c.push(0x79); return 0x0d111; // $D077 JSR $D111
       case 0x0d07a: if (c.cycles >= end) { c.key = 0x0d07a; return -1; } c.cycles += 6; c.push(0xd0); c.push(0x7c); return 0x1d13f; // $D07A JSR $D13F
       case 0x0d07d: if (c.cycles >= end) { c.key = 0x0d07d; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D07D STA $F5
       case 0x0d07f: if (c.cycles >= end) { c.key = 0x0d07f; return -1; } c.cycles += 2;  // $D07F NOP
       case 0x0d080: if (c.cycles >= end) { c.key = 0x0d080; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $D080 LDA $4002
       case 0x0d083: if (c.cycles >= end) { c.key = 0x0d083; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x01); // $D083 AND #$01
-      case 0x0d085: if (c.cycles >= end) { c.key = 0x0d085; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d095; continue; } // $D085 BEQ $D095
+      case 0x0d085: if (c.cycles >= end) { c.key = 0x0d085; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d095; continue; } // $D085 BEQ $D095
       case 0x0d087: if (c.cycles >= end) { c.key = 0x0d087; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $D087 LDA $4002
       case 0x0d08a: if (c.cycles >= end) { c.key = 0x0d08a; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x02); // $D08A AND #$02
-      case 0x0d08c: if (c.cycles >= end) { c.key = 0x0d08c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d0c0; } // $D08C BEQ $D0C0
+      case 0x0d08c: if (c.cycles >= end) { c.key = 0x0d08c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d0c0; } // $D08C BEQ $D0C0
       case 0x0d08e: if (c.cycles >= end) { c.key = 0x0d08e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D08E STA $F5
       case 0x0d090: if (c.cycles >= end) { c.key = 0x0d090; return -1; } c.cycles += 2;  // $D090 NOP
       case 0x0d091: if (c.cycles >= end) { c.key = 0x0d091; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D091 RTS
@@ -2033,7 +2034,7 @@ function b51(c, bus, ram, rom, end, pc) {
       case 0x0d0ba: if (c.cycles >= end) { c.key = 0x0d0ba; return -1; } c.cycles += 3; return 0x0d0fd; // $D0BA JMP $D0FD
       case 0x0d0c0: if (c.cycles >= end) { c.key = 0x0d0c0; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1d]); // $D0C0 LDA $1D
       case 0x0d0c2: if (c.cycles >= end) { c.key = 0x0d0c2; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $D0C2 CMP #$02
-      case 0x0d0c4: if (c.cycles >= end) { c.key = 0x0d0c4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0d0c9; continue; } // $D0C4 BCS $D0C9
+      case 0x0d0c4: if (c.cycles >= end) { c.key = 0x0d0c4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d0c9; continue; } // $D0C4 BCS $D0C9
       case 0x0d0c6: if (c.cycles >= end) { c.key = 0x0d0c6; return -1; } c.cycles += 3; return 0x0d091; // $D0C6 JMP $D091
       case 0x0d0c9: if (c.cycles >= end) { c.key = 0x0d0c9; return -1; } c.cycles += 6; c.push(0xd0); c.push(0xcb); return 0x1d16e; // $D0C9 JSR $D16E
       case 0x0d0cc: if (c.cycles >= end) { c.key = 0x0d0cc; return -1; } c.cycles += 6; c.push(0xd0); c.push(0xce); return 0x1d16e; // $D0CC JSR $D16E
@@ -2071,14 +2072,14 @@ function b52(c, bus, ram, rom, end, pc) {
       case 0x0d103: if (c.cycles >= end) { c.key = 0x0d103; return -1; } c.cycles += 2;  // $D103 NOP
       case 0x0d104: if (c.cycles >= end) { c.key = 0x0d104; return -1; } c.cycles += 4; c.write((0x2d + c.x) & 0xff, c.a); // $D104 STA $2D,X
       case 0x1d106: if (c.cycles >= end) { c.key = 0x1d106; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $D106* DEX
-      case 0x0d107: if (c.cycles >= end) { c.key = 0x0d107; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0d104; continue; } // $D107 BPL $D104
+      case 0x0d107: if (c.cycles >= end) { c.key = 0x0d107; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d104; continue; } // $D107 BPL $D104
       case 0x0d109: if (c.cycles >= end) { c.key = 0x0d109; return -1; } c.cycles += 2; c.x = c.setNZ(0xff); // $D109 LDX #$FF
       case 0x0d10b: if (c.cycles >= end) { c.key = 0x0d10b; return -1; } c.cycles += 2; c.s = c.x; // $D10B TXS
       case 0x0d10c: if (c.cycles >= end) { c.key = 0x0d10c; return -1; } c.cycles += 3; return 0x0c068; // $D10C JMP $C068
       case 0x0d111: if (c.cycles >= end) { c.key = 0x0d111; return -1; } c.cycles += 2;  // $D111 NOP
       case 0x0d112: if (c.cycles >= end) { c.key = 0x0d112; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x1367)); // $D112 LDA $1367
       case 0x0d115: if (c.cycles >= end) { c.key = 0x0d115; return -1; } c.cycles += 4; c.cmp(c.a, rom[0xd155]); // $D115 CMP $D155
-      case 0x0d118: if (c.cycles >= end) { c.key = 0x0d118; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d154; } // $D118 BEQ $D154
+      case 0x0d118: if (c.cycles >= end) { c.key = 0x0d118; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d154; } // $D118 BEQ $D154
       case 0x0d11a: if (c.cycles >= end) { c.key = 0x0d11a; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $D11A LDY #$00
       case 0x0d11c: if (c.cycles >= end) { c.key = 0x0d11c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D11C STA $F5
       case 0x1d11e: if (c.cycles >= end) { c.key = 0x1d11e; return -1; } c.cycles += 2;  // $D11E* NOP
@@ -2086,7 +2087,7 @@ function b52(c, bus, ram, rom, end, pc) {
       case 0x0d122: if (c.cycles >= end) { c.key = 0x0d122; return -1; } c.cycles += 5; c.write((0x1367 + c.y) & 0xffff, c.a); // $D122 STA $1367,Y
       case 0x1d125: if (c.cycles >= end) { c.key = 0x1d125; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D125* INY
       case 0x0d126: if (c.cycles >= end) { c.key = 0x0d126; return -1; } c.cycles += 2; c.cmp(c.y, 0x11); // $D126 CPY #$11
-      case 0x0d128: if (c.cycles >= end) { c.key = 0x0d128; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d11f; continue; } // $D128 BNE $D11F
+      case 0x0d128: if (c.cycles >= end) { c.key = 0x0d128; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d11f; continue; } // $D128 BNE $D11F
       case 0x0d12a: if (c.cycles >= end) { c.key = 0x0d12a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D12A STA $F5
       case 0x1d12c: if (c.cycles >= end) { c.key = 0x1d12c; return -1; } c.cycles += 2;  // $D12C* NOP
       case 0x0d12d: if (c.cycles >= end) { c.key = 0x0d12d; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $D12D LDY #$00
@@ -2103,7 +2104,7 @@ function b53(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d139: if (c.cycles >= end) { c.key = 0x0d139; return -1; } c.cycles += 2; c.cmp(c.y, 0x06); // $D139 CPY #$06
-      case 0x0d13b: if (c.cycles >= end) { c.key = 0x0d13b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d132; } // $D13B BNE $D132
+      case 0x0d13b: if (c.cycles >= end) { c.key = 0x0d13b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d132; } // $D13B BNE $D132
       case 0x0d13d: if (c.cycles >= end) { c.key = 0x0d13d; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D13D STA $F5
       case 0x1d13f: if (c.cycles >= end) { c.key = 0x1d13f; return -1; } c.cycles += 2;  // $D13F* NOP
       case 0x0d140: if (c.cycles >= end) { c.key = 0x0d140; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1d]); // $D140 LDA $1D
@@ -2131,7 +2132,7 @@ function b53(c, bus, ram, rom, end, pc) {
       case 0x0d178: if (c.cycles >= end) { c.key = 0x0d178; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D178 RTS
       case 0x0d17b: if (c.cycles >= end) { c.key = 0x0d17b; return -1; } c.cycles += 2;  // $D17B NOP
       case 0x0d17c: if (c.cycles >= end) { c.key = 0x0d17c; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $D17C LDA $6F
-      case 0x0d17e: if (c.cycles >= end) { c.key = 0x0d17e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0d184; } // $D17E BPL $D184
+      case 0x0d17e: if (c.cycles >= end) { c.key = 0x0d17e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d184; } // $D17E BPL $D184
       case 0x0d180: if (c.cycles >= end) { c.key = 0x0d180; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D180 STA $F5
       case 0x0d182: if (c.cycles >= end) { c.key = 0x0d182; return -1; } c.cycles += 2;  return 0x0d183; // $D182 NOP
       default: return pc;
@@ -2143,22 +2144,22 @@ function b54(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0d183: if (c.cycles >= end) { c.key = 0x0d183; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D183 RTS
       case 0x0d184: if (c.cycles >= end) { c.key = 0x0d184; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $D184 LDA $1B
-      case 0x0d186: if (c.cycles >= end) { c.key = 0x0d186; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d18b; continue; } // $D186 BNE $D18B
+      case 0x0d186: if (c.cycles >= end) { c.key = 0x0d186; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d18b; continue; } // $D186 BNE $D18B
       case 0x0d188: if (c.cycles >= end) { c.key = 0x0d188; return -1; } c.cycles += 3; return 0x0d236; // $D188 JMP $D236
       case 0x0d18b: if (c.cycles >= end) { c.key = 0x0d18b; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $D18B LDX $1F
       case 0x0d18d: if (c.cycles >= end) { c.key = 0x0d18d; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x1f]); // $D18D LDY $1F
       case 0x0d18f: if (c.cycles >= end) { c.key = 0x0d18f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $D18F LDA $4003
       case 0x0d192: if (c.cycles >= end) { c.key = 0x0d192; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $D192 AND #$40
-      case 0x0d194: if (c.cycles >= end) { c.key = 0x0d194; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d198; continue; } // $D194 BNE $D198
+      case 0x0d194: if (c.cycles >= end) { c.key = 0x0d194; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d198; continue; } // $D194 BNE $D198
       case 0x0d196: if (c.cycles >= end) { c.key = 0x0d196; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $D196 LDY #$00
       case 0x0d198: if (c.cycles >= end) { c.key = 0x0d198; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x4000, c.y))); // $D198 LDA $4000,Y
       case 0x0d19b: if (c.cycles >= end) { c.key = 0x0d19b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $D19B EOR #$FF
       case 0x0d19d: if (c.cycles >= end) { c.key = 0x0d19d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $D19D AND #$10
-      case 0x0d19f: if (c.cycles >= end) { c.key = 0x0d19f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d1e1; } // $D19F BEQ $D1E1
+      case 0x0d19f: if (c.cycles >= end) { c.key = 0x0d19f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d1e1; } // $D19F BEQ $D1E1
       case 0x0d1a1: if (c.cycles >= end) { c.key = 0x0d1a1; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xb9]); // $D1A1 LDA $B9
-      case 0x0d1a3: if (c.cycles >= end) { c.key = 0x0d1a3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d1e8; } // $D1A3 BNE $D1E8
+      case 0x0d1a3: if (c.cycles >= end) { c.key = 0x0d1a3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d1e8; } // $D1A3 BNE $D1E8
       case 0x0d1a5: if (c.cycles >= end) { c.key = 0x0d1a5; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x2b + c.x) & 0xff)); // $D1A5 LDA $2B,X
-      case 0x0d1a7: if (c.cycles >= end) { c.key = 0x0d1a7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d1d6; } // $D1A7 BEQ $D1D6
+      case 0x0d1a7: if (c.cycles >= end) { c.key = 0x0d1a7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d1d6; } // $D1A7 BEQ $D1D6
       case 0x0d1a9: if (c.cycles >= end) { c.key = 0x0d1a9; return -1; } c.cycles += 3; ram[0xb9] = c.a; // $D1A9 STA $B9
       case 0x0d1ab: if (c.cycles >= end) { c.key = 0x0d1ab; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D1AB STA $F5
       case 0x1d1ad: if (c.cycles >= end) { c.key = 0x1d1ad; return -1; } c.cycles += 2;  // $D1AD* NOP
@@ -2210,7 +2211,7 @@ function b55(c, bus, ram, rom, end, pc) {
       case 0x0d200: if (c.cycles >= end) { c.key = 0x0d200; return -1; } c.cycles += 2;  // $D200 NOP
       case 0x0d201: if (c.cycles >= end) { c.key = 0x0d201; return -1; } c.cycles += 3; ram[0xbb] = c.y; // $D201 STY $BB
       case 0x0d203: if (c.cycles >= end) { c.key = 0x0d203; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $D203 TYA
-      case 0x0d204: if (c.cycles >= end) { c.key = 0x0d204; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d20b; } // $D204 BEQ $D20B
+      case 0x0d204: if (c.cycles >= end) { c.key = 0x0d204; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d20b; } // $D204 BEQ $D20B
       case 0x0d206: if (c.cycles >= end) { c.key = 0x0d206; return -1; } c.cycles += 3; ram[0xba] = c.y; return 0x0d208; // $D206 STY $BA
       default: return pc;
     }
@@ -2222,20 +2223,20 @@ function b56(c, bus, ram, rom, end, pc) {
       case 0x0d208: if (c.cycles >= end) { c.key = 0x0d208; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D208 STA $F5
       case 0x0d20a: if (c.cycles >= end) { c.key = 0x0d20a; return -1; } c.cycles += 2;  // $D20A NOP
       case 0x0d20b: if (c.cycles >= end) { c.key = 0x0d20b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xbb]); // $D20B LDA $BB
-      case 0x0d20d: if (c.cycles >= end) { c.key = 0x0d20d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d219; continue; } // $D20D BEQ $D219
+      case 0x0d20d: if (c.cycles >= end) { c.key = 0x0d20d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d219; continue; } // $D20D BEQ $D219
       case 0x0d20f: if (c.cycles >= end) { c.key = 0x0d20f; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $D20F LDX #$07
       case 0x0d211: if (c.cycles >= end) { c.key = 0x0d211; return -1; } c.cycles += 6; c.push(0xd2); c.push(0x13); return 0x0d3c3; // $D211 JSR $D3C3
-      case 0x0d214: if (c.cycles >= end) { c.key = 0x0d214; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d232; continue; } // $D214 BNE $D232
+      case 0x0d214: if (c.cycles >= end) { c.key = 0x0d214; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d232; continue; } // $D214 BNE $D232
       case 0x0d216: if (c.cycles >= end) { c.key = 0x0d216; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D216 STA $F5
       case 0x0d218: if (c.cycles >= end) { c.key = 0x0d218; return -1; } c.cycles += 2;  // $D218 NOP
       case 0x0d219: if (c.cycles >= end) { c.key = 0x0d219; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $D219 LDX #$07
       case 0x0d21b: if (c.cycles >= end) { c.key = 0x0d21b; return -1; } c.cycles += 6; c.push(0xd2); c.push(0x1d); return 0x0d269; // $D21B JSR $D269
       case 0x0d21e: if (c.cycles >= end) { c.key = 0x0d21e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xb0]); // $D21E LDA $B0
       case 0x0d220: if (c.cycles >= end) { c.key = 0x0d220; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $D220 AND #$F0
-      case 0x0d222: if (c.cycles >= end) { c.key = 0x0d222; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d232; continue; } // $D222 BEQ $D232
+      case 0x0d222: if (c.cycles >= end) { c.key = 0x0d222; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d232; continue; } // $D222 BEQ $D232
       case 0x0d224: if (c.cycles >= end) { c.key = 0x0d224; return -1; } c.cycles += 2; c.y = c.setNZ(0x06); // $D224 LDY #$06
       case 0x0d226: if (c.cycles >= end) { c.key = 0x0d226; return -1; } c.cycles += 2; c.cmp(c.a, 0x60); // $D226 CMP #$60
-      case 0x0d228: if (c.cycles >= end) { c.key = 0x0d228; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0d22b; continue; } // $D228 BCS $D22B
+      case 0x0d228: if (c.cycles >= end) { c.key = 0x0d228; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d22b; continue; } // $D228 BCS $D22B
       case 0x0d22a: if (c.cycles >= end) { c.key = 0x0d22a; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D22A INY
       case 0x0d22b: if (c.cycles >= end) { c.key = 0x0d22b; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $D22B TYA
       case 0x0d22c: if (c.cycles >= end) { c.key = 0x0d22c; return -1; } c.cycles += 6; c.push(0xd2); c.push(0x2e); return 0x0ea5d; // $D22C JSR $EA5D
@@ -2244,7 +2245,7 @@ function b56(c, bus, ram, rom, end, pc) {
       case 0x0d232: if (c.cycles >= end) { c.key = 0x0d232; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D232 RTS
       case 0x0d236: if (c.cycles >= end) { c.key = 0x0d236; return -1; } c.cycles += 2; c.x = c.setNZ(0x07); // $D236 LDX #$07
       case 0x0d238: if (c.cycles >= end) { c.key = 0x0d238; return -1; } c.cycles += 6; c.push(0xd2); c.push(0x3a); return 0x0d3c3; // $D238 JSR $D3C3
-      case 0x0d23b: if (c.cycles >= end) { c.key = 0x0d23b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d247; continue; } // $D23B BEQ $D247
+      case 0x0d23b: if (c.cycles >= end) { c.key = 0x0d23b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d247; continue; } // $D23B BEQ $D247
       case 0x0d23d: if (c.cycles >= end) { c.key = 0x0d23d; return -1; } c.cycles += 2; c.a = c.setNZ(0x47); // $D23D LDA #$47
       case 0x0d23f: if (c.cycles >= end) { c.key = 0x0d23f; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $D23F STA $181D
       case 0x0d242: if (c.cycles >= end) { c.key = 0x0d242; return -1; } c.cycles += 5; ram[0xc6] = c.setNZ((ram[0xc6] + 1) & 0xff); // $D242 INC $C6
@@ -2262,14 +2263,14 @@ function b57(c, bus, ram, rom, end, pc) {
       case 0x0d24c: if (c.cycles >= end) { c.key = 0x0d24c; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D24C RTS
       case 0x0d269: if (c.cycles >= end) { c.key = 0x0d269; return -1; } c.cycles += 2;  // $D269 NOP
       case 0x0d26a: if (c.cycles >= end) { c.key = 0x0d26a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $D26A LDA $68,X
-      case 0x0d26c: if (c.cycles >= end) { c.key = 0x0d26c; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0d26f; continue; } // $D26C BPL $D26F
+      case 0x0d26c: if (c.cycles >= end) { c.key = 0x0d26c; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d26f; continue; } // $D26C BPL $D26F
       case 0x0d26e: if (c.cycles >= end) { c.key = 0x0d26e; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D26E RTS
       case 0x0d26f: if (c.cycles >= end) { c.key = 0x0d26f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $D26F LDA $13
       case 0x0d271: if (c.cycles >= end) { c.key = 0x0d271; return -1; } c.cycles += 4; c.a = c.setNZ(c.a & c.read((0x91 + c.x) & 0xff)); // $D271 AND $91,X
-      case 0x0d273: if (c.cycles >= end) { c.key = 0x0d273; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d276; continue; } // $D273 BNE $D276
+      case 0x0d273: if (c.cycles >= end) { c.key = 0x0d273; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d276; continue; } // $D273 BNE $D276
       case 0x0d275: if (c.cycles >= end) { c.key = 0x0d275; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D275 RTS
       case 0x0d276: if (c.cycles >= end) { c.key = 0x0d276; return -1; } c.cycles += 6; c.rmw((0x99 + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $D276 DEC $99,X
-      case 0x0d278: if (c.cycles >= end) { c.key = 0x0d278; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d27b; continue; } // $D278 BEQ $D27B
+      case 0x0d278: if (c.cycles >= end) { c.key = 0x0d278; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d27b; continue; } // $D278 BEQ $D27B
       case 0x0d27a: if (c.cycles >= end) { c.key = 0x0d27a; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D27A RTS
       case 0x0d27b: if (c.cycles >= end) { c.key = 0x0d27b; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xa1 + c.x) & 0xff)); // $D27B LDA $A1,X
       case 0x0d27d: if (c.cycles >= end) { c.key = 0x0d27d; return -1; } c.cycles += 4; c.write((0x99 + c.x) & 0xff, c.a); // $D27D STA $99,X
@@ -2280,13 +2281,13 @@ function b57(c, bus, ram, rom, end, pc) {
       case 0x0d287: if (c.cycles >= end) { c.key = 0x0d287; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D287 LSR A
       case 0x0d288: if (c.cycles >= end) { c.key = 0x0d288; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D288 LSR A
       case 0x0d289: if (c.cycles >= end) { c.key = 0x0d289; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D289 LSR A
-      case 0x0d28a: if (c.cycles >= end) { c.key = 0x0d28a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d297; continue; } // $D28A BEQ $D297
+      case 0x0d28a: if (c.cycles >= end) { c.key = 0x0d28a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d297; continue; } // $D28A BEQ $D297
       case 0x0d28c: if (c.cycles >= end) { c.key = 0x0d28c; return -1; } c.cycles += 2; c.p &= ~0x01; // $D28C CLC
       case 0x0d28d: if (c.cycles >= end) { c.key = 0x0d28d; return -1; } c.cycles += 3; c.adc(ram[0x03]); // $D28D ADC $03
       case 0x0d28f: if (c.cycles >= end) { c.key = 0x0d28f; return -1; } c.cycles += 3; ram[0x03] = c.a; // $D28F STA $03
       case 0x0d291: if (c.cycles >= end) { c.key = 0x0d291; return -1; } c.cycles += 3; return 0x0d2ac; // $D291 JMP $D2AC
       case 0x0d297: if (c.cycles >= end) { c.key = 0x0d297; return -1; } c.cycles += 2; c.cmp(c.x, 0x07); // $D297 CPX #$07
-      case 0x0d299: if (c.cycles >= end) { c.key = 0x0d299; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d2ac; } // $D299 BNE $D2AC
+      case 0x0d299: if (c.cycles >= end) { c.key = 0x0d299; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d2ac; } // $D299 BNE $D2AC
       case 0x0d29b: if (c.cycles >= end) { c.key = 0x0d29b; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $D29B LDY #$00
       case 0x0d29d: if (c.cycles >= end) { c.key = 0x0d29d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xba]); // $D29D LDA $BA
       case 0x0d29f: if (c.cycles >= end) { c.key = 0x0d29f; return -1; } c.cycles += 2; c.cmp(c.a, 0x06); return 0x0d2a1; // $D29F CMP #$06
@@ -2297,7 +2298,7 @@ function b57(c, bus, ram, rom, end, pc) {
 function b58(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0d2a1: if (c.cycles >= end) { c.key = 0x0d2a1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d2a7; continue; } // $D2A1 BNE $D2A7
+      case 0x0d2a1: if (c.cycles >= end) { c.key = 0x0d2a1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d2a7; continue; } // $D2A1 BNE $D2A7
       case 0x0d2a3: if (c.cycles >= end) { c.key = 0x0d2a3; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D2A3 INY
       case 0x0d2a4: if (c.cycles >= end) { c.key = 0x0d2a4; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D2A4 STA $F5
       case 0x0d2a6: if (c.cycles >= end) { c.key = 0x0d2a6; return -1; } c.cycles += 2;  // $D2A6 NOP
@@ -2359,14 +2360,14 @@ function b59(c, bus, ram, rom, end, pc) {
       case 0x0d2fd: if (c.cycles >= end) { c.key = 0x0d2fd; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xd3b8, c.x))); // $D2FD LDA $D3B8,X
       case 0x0d300: if (c.cycles >= end) { c.key = 0x0d300; return -1; } c.cycles += 4; c.adc(c.read(c.indexed(0x1803, c.y))); // $D300 ADC $1803,Y
       case 0x0d303: if (c.cycles >= end) { c.key = 0x0d303; return -1; } c.cycles += 2; c.cmp(c.a, 0x1d); // $D303 CMP #$1D
-      case 0x0d305: if (c.cycles >= end) { c.key = 0x0d305; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0d309; continue; } // $D305 BCS $D309
+      case 0x0d305: if (c.cycles >= end) { c.key = 0x0d305; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d309; continue; } // $D305 BCS $D309
       case 0x0d307: if (c.cycles >= end) { c.key = 0x0d307; return -1; } c.cycles += 2; c.a = c.setNZ(0x1d); // $D307 LDA #$1D
       case 0x0d309: if (c.cycles >= end) { c.key = 0x0d309; return -1; } c.cycles += 5; c.write((0x1803 + c.y) & 0xffff, c.a); // $D309 STA $1803,Y
       case 0x1d30c: if (c.cycles >= end) { c.key = 0x1d30c; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x08]); // $D30C* LDX $08
       case 0x0d30e: if (c.cycles >= end) { c.key = 0x0d30e; return -1; } c.cycles += 3; return 0x0d34a; // $D30E JMP $D34A
       case 0x0d314: if (c.cycles >= end) { c.key = 0x0d314; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x09]); // $D314 LDY $09
       case 0x0d316: if (c.cycles >= end) { c.key = 0x0d316; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xa9 + c.x) & 0xff)); // $D316 LDA $A9,X
-      case 0x0d318: if (c.cycles >= end) { c.key = 0x0d318; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0d327; } // $D318 BMI $D327
+      case 0x0d318: if (c.cycles >= end) { c.key = 0x0d318; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d327; } // $D318 BMI $D327
       case 0x0d31a: if (c.cycles >= end) { c.key = 0x0d31a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1803, c.y))); return 0x0d31d; // $D31A LDA $1803,Y
       default: return pc;
     }
@@ -2389,7 +2390,7 @@ function b60(c, bus, ram, rom, end, pc) {
       case 0x0d338: if (c.cycles >= end) { c.key = 0x0d338; return -1; } c.cycles += 2;  // $D338 NOP
       case 0x0d339: if (c.cycles >= end) { c.key = 0x0d339; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xa9 + c.x) & 0xff)); // $D339 LDA $A9,X
       case 0x0d33b: if (c.cycles >= end) { c.key = 0x0d33b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $D33B AND #$F0
-      case 0x0d33d: if (c.cycles >= end) { c.key = 0x0d33d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d34a; continue; } // $D33D BEQ $D34A
+      case 0x0d33d: if (c.cycles >= end) { c.key = 0x0d33d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d34a; continue; } // $D33D BEQ $D34A
       case 0x0d33f: if (c.cycles >= end) { c.key = 0x0d33f; return -1; } c.cycles += 6; c.rmw((0xa9 + c.x) & 0xff, (v) => c.setNZ((v + 1) & 0xff)); // $D33F INC $A9,X
       case 0x0d341: if (c.cycles >= end) { c.key = 0x0d341; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xa9 + c.x) & 0xff)); // $D341 LDA $A9,X
       case 0x0d343: if (c.cycles >= end) { c.key = 0x0d343; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf3); // $D343 AND #$F3
@@ -2430,16 +2431,16 @@ function b61(c, bus, ram, rom, end, pc) {
       case 0x0d3f9: if (c.cycles >= end) { c.key = 0x0d3f9; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D3F9 RTS
       case 0x0d3fd: if (c.cycles >= end) { c.key = 0x0d3fd; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $D3FD LDA $03
       case 0x0d3ff: if (c.cycles >= end) { c.key = 0x0d3ff; return -1; } c.cycles += 2; c.cmp(c.a, 0x16); // $D3FF CMP #$16
-      case 0x0d401: if (c.cycles >= end) { c.key = 0x0d401; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0d40d; continue; } // $D401 BCS $D40D
+      case 0x0d401: if (c.cycles >= end) { c.key = 0x0d401; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d40d; continue; } // $D401 BCS $D40D
       case 0x0d403: if (c.cycles >= end) { c.key = 0x0d403; return -1; } c.cycles += 2; c.a = c.setNZ(0x17); // $D403 LDA #$17
       case 0x0d405: if (c.cycles >= end) { c.key = 0x0d405; return -1; } c.cycles += 5; c.write((0x1802 + c.y) & 0xffff, c.a); // $D405 STA $1802,Y
-      case 0x0d408: if (c.cycles >= end) { c.key = 0x0d408; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d42a; } // $D408 BNE $D42A
+      case 0x0d408: if (c.cycles >= end) { c.key = 0x0d408; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d42a; } // $D408 BNE $D42A
       case 0x0d40a: if (c.cycles >= end) { c.key = 0x0d40a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D40A STA $F5
       case 0x0d40c: if (c.cycles >= end) { c.key = 0x0d40c; return -1; } c.cycles += 2;  // $D40C NOP
       case 0x0d40d: if (c.cycles >= end) { c.key = 0x0d40d; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x0f); return 0x0d500; // $D40D JSR $D500
-      case 0x0d410: if (c.cycles >= end) { c.key = 0x0d410; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d42a; } // $D410 BNE $D42A
+      case 0x0d410: if (c.cycles >= end) { c.key = 0x0d410; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d42a; } // $D410 BNE $D42A
       case 0x0d412: if (c.cycles >= end) { c.key = 0x0d412; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x14); return 0x0d588; // $D412 JSR $D588
-      case 0x0d415: if (c.cycles >= end) { c.key = 0x0d415; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d42a; } // $D415 BNE $D42A
+      case 0x0d415: if (c.cycles >= end) { c.key = 0x0d415; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d42a; } // $D415 BNE $D42A
       case 0x0d417: if (c.cycles >= end) { c.key = 0x0d417; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $D417 LDA $04
       case 0x0d419: if (c.cycles >= end) { c.key = 0x0d419; return -1; } c.cycles += 2; c.p |= 0x01; // $D419 SEC
       case 0x0d41a: if (c.cycles >= end) { c.key = 0x0d41a; return -1; } c.cycles += 2; c.sbc(0x01); // $D41A SBC #$01
@@ -2460,16 +2461,16 @@ function b62(c, bus, ram, rom, end, pc) {
       case 0x0d42a: if (c.cycles >= end) { c.key = 0x0d42a; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D42A RTS
       case 0x0d42e: if (c.cycles >= end) { c.key = 0x0d42e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $D42E LDA $03
       case 0x0d430: if (c.cycles >= end) { c.key = 0x0d430; return -1; } c.cycles += 2; c.cmp(c.a, 0xd8); // $D430 CMP #$D8
-      case 0x0d432: if (c.cycles >= end) { c.key = 0x0d432; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0d43e; continue; } // $D432 BCC $D43E
+      case 0x0d432: if (c.cycles >= end) { c.key = 0x0d432; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d43e; continue; } // $D432 BCC $D43E
       case 0x0d434: if (c.cycles >= end) { c.key = 0x0d434; return -1; } c.cycles += 2; c.a = c.setNZ(0xd8); // $D434 LDA #$D8
       case 0x0d436: if (c.cycles >= end) { c.key = 0x0d436; return -1; } c.cycles += 5; c.write((0x1802 + c.y) & 0xffff, c.a); // $D436 STA $1802,Y
-      case 0x0d439: if (c.cycles >= end) { c.key = 0x0d439; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d45b; continue; } // $D439 BNE $D45B
+      case 0x0d439: if (c.cycles >= end) { c.key = 0x0d439; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d45b; continue; } // $D439 BNE $D45B
       case 0x0d43b: if (c.cycles >= end) { c.key = 0x0d43b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D43B STA $F5
       case 0x0d43d: if (c.cycles >= end) { c.key = 0x0d43d; return -1; } c.cycles += 2;  // $D43D NOP
       case 0x0d43e: if (c.cycles >= end) { c.key = 0x0d43e; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x40); return 0x0d500; // $D43E JSR $D500
-      case 0x0d441: if (c.cycles >= end) { c.key = 0x0d441; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d45b; continue; } // $D441 BNE $D45B
+      case 0x0d441: if (c.cycles >= end) { c.key = 0x0d441; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d45b; continue; } // $D441 BNE $D45B
       case 0x0d443: if (c.cycles >= end) { c.key = 0x0d443; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x45); return 0x0d5ab; // $D443 JSR $D5AB
-      case 0x0d446: if (c.cycles >= end) { c.key = 0x0d446; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d45b; continue; } // $D446 BNE $D45B
+      case 0x0d446: if (c.cycles >= end) { c.key = 0x0d446; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d45b; continue; } // $D446 BNE $D45B
       case 0x0d448: if (c.cycles >= end) { c.key = 0x0d448; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $D448 LDA $04
       case 0x0d44a: if (c.cycles >= end) { c.key = 0x0d44a; return -1; } c.cycles += 2; c.p |= 0x01; // $D44A SEC
       case 0x0d44b: if (c.cycles >= end) { c.key = 0x0d44b; return -1; } c.cycles += 2; c.sbc(0x01); // $D44B SBC #$01
@@ -2483,7 +2484,7 @@ function b62(c, bus, ram, rom, end, pc) {
       case 0x0d45b: if (c.cycles >= end) { c.key = 0x0d45b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D45B RTS
       case 0x0d45f: if (c.cycles >= end) { c.key = 0x0d45f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $D45F LDA $04
       case 0x0d461: if (c.cycles >= end) { c.key = 0x0d461; return -1; } c.cycles += 2; c.cmp(c.a, 0x1d); // $D461 CMP #$1D
-      case 0x0d463: if (c.cycles >= end) { c.key = 0x0d463; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0d46f; } // $D463 BCS $D46F
+      case 0x0d463: if (c.cycles >= end) { c.key = 0x0d463; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d46f; } // $D463 BCS $D46F
       case 0x0d465: if (c.cycles >= end) { c.key = 0x0d465; return -1; } c.cycles += 2; c.a = c.setNZ(0x1d); return 0x0d467; // $D465 LDA #$1D
       default: return pc;
     }
@@ -2493,13 +2494,13 @@ function b63(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d467: if (c.cycles >= end) { c.key = 0x0d467; return -1; } c.cycles += 5; c.write((0x1803 + c.y) & 0xffff, c.a); // $D467 STA $1803,Y
-      case 0x0d46a: if (c.cycles >= end) { c.key = 0x0d46a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d4a0; continue; } // $D46A BNE $D4A0
+      case 0x0d46a: if (c.cycles >= end) { c.key = 0x0d46a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d4a0; continue; } // $D46A BNE $D4A0
       case 0x0d46c: if (c.cycles >= end) { c.key = 0x0d46c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D46C STA $F5
       case 0x0d46e: if (c.cycles >= end) { c.key = 0x0d46e; return -1; } c.cycles += 2;  // $D46E NOP
       case 0x0d46f: if (c.cycles >= end) { c.key = 0x0d46f; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x71); return 0x0d523; // $D46F JSR $D523
-      case 0x0d472: if (c.cycles >= end) { c.key = 0x0d472; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d4a0; continue; } // $D472 BNE $D4A0
+      case 0x0d472: if (c.cycles >= end) { c.key = 0x0d472; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d4a0; continue; } // $D472 BNE $D4A0
       case 0x0d474: if (c.cycles >= end) { c.key = 0x0d474; return -1; } c.cycles += 6; c.push(0xd4); c.push(0x76); return 0x0d61e; // $D474 JSR $D61E
-      case 0x0d477: if (c.cycles >= end) { c.key = 0x0d477; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d4a0; continue; } // $D477 BNE $D4A0
+      case 0x0d477: if (c.cycles >= end) { c.key = 0x0d477; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d4a0; continue; } // $D477 BNE $D4A0
       case 0x0d479: if (c.cycles >= end) { c.key = 0x0d479; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $D479 TXA
       case 0x0d47a: if (c.cycles >= end) { c.key = 0x0d47a; return -1; } c.cycles += 3; c.push(c.a); // $D47A PHA
       case 0x0d47b: if (c.cycles >= end) { c.key = 0x0d47b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $D47B LDA $08
@@ -2507,7 +2508,7 @@ function b63(c, bus, ram, rom, end, pc) {
       case 0x0d47f: if (c.cycles >= end) { c.key = 0x0d47f; return -1; } c.cycles += 3; c.push(c.a); // $D47F PHA
       case 0x0d480: if (c.cycles >= end) { c.key = 0x0d480; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $D480 LDA $4003
       case 0x0d483: if (c.cycles >= end) { c.key = 0x0d483; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $D483 AND #$40
-      case 0x0d485: if (c.cycles >= end) { c.key = 0x0d485; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d4a4; } // $D485 BEQ $D4A4
+      case 0x0d485: if (c.cycles >= end) { c.key = 0x0d485; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d4a4; } // $D485 BEQ $D4A4
       case 0x0d487: if (c.cycles >= end) { c.key = 0x0d487; return -1; } c.cycles += 4; c.a = c.setNZ(c.pull()); // $D487 PLA
       case 0x0d488: if (c.cycles >= end) { c.key = 0x0d488; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $D488 LDX $1F
       case 0x0d48a: if (c.cycles >= end) { c.key = 0x0d48a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D48A STA $F5
@@ -2536,17 +2537,17 @@ function b64(c, bus, ram, rom, end, pc) {
       case 0x0d4a7: if (c.cycles >= end) { c.key = 0x0d4a7; return -1; } c.cycles += 3; return 0x0d48d; // $D4A7 JMP $D48D
       case 0x0d4ad: if (c.cycles >= end) { c.key = 0x0d4ad; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $D4AD LDA $04
       case 0x0d4af: if (c.cycles >= end) { c.key = 0x0d4af; return -1; } c.cycles += 2; c.cmp(c.a, 0xdd); // $D4AF CMP #$DD
-      case 0x0d4b1: if (c.cycles >= end) { c.key = 0x0d4b1; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0d4bd; continue; } // $D4B1 BCC $D4BD
+      case 0x0d4b1: if (c.cycles >= end) { c.key = 0x0d4b1; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d4bd; continue; } // $D4B1 BCC $D4BD
       case 0x0d4b3: if (c.cycles >= end) { c.key = 0x0d4b3; return -1; } c.cycles += 2; c.a = c.setNZ(0xdd); // $D4B3 LDA #$DD
       case 0x0d4b5: if (c.cycles >= end) { c.key = 0x0d4b5; return -1; } c.cycles += 5; c.write((0x1803 + c.y) & 0xffff, c.a); // $D4B5 STA $1803,Y
-      case 0x0d4b8: if (c.cycles >= end) { c.key = 0x0d4b8; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d4f0; } // $D4B8 BNE $D4F0
+      case 0x0d4b8: if (c.cycles >= end) { c.key = 0x0d4b8; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d4f0; } // $D4B8 BNE $D4F0
       case 0x0d4ba: if (c.cycles >= end) { c.key = 0x0d4ba; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D4BA STA $F5
       case 0x0d4bc: if (c.cycles >= end) { c.key = 0x0d4bc; return -1; } c.cycles += 2;  // $D4BC NOP
       case 0x0d4bd: if (c.cycles >= end) { c.key = 0x0d4bd; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $D4BD LDA $03
       case 0x0d4bf: if (c.cycles >= end) { c.key = 0x0d4bf; return -1; } c.cycles += 6; c.push(0xd4); c.push(0xc1); return 0x0d523; // $D4BF JSR $D523
-      case 0x0d4c2: if (c.cycles >= end) { c.key = 0x0d4c2; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d4f0; } // $D4C2 BNE $D4F0
+      case 0x0d4c2: if (c.cycles >= end) { c.key = 0x0d4c2; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d4f0; } // $D4C2 BNE $D4F0
       case 0x0d4c4: if (c.cycles >= end) { c.key = 0x0d4c4; return -1; } c.cycles += 6; c.push(0xd4); c.push(0xc6); return 0x0d641; // $D4C4 JSR $D641
-      case 0x0d4c7: if (c.cycles >= end) { c.key = 0x0d4c7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d4f0; } // $D4C7 BNE $D4F0
+      case 0x0d4c7: if (c.cycles >= end) { c.key = 0x0d4c7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d4f0; } // $D4C7 BNE $D4F0
       case 0x0d4c9: if (c.cycles >= end) { c.key = 0x0d4c9; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $D4C9 TXA
       case 0x0d4ca: if (c.cycles >= end) { c.key = 0x0d4ca; return -1; } c.cycles += 3; c.push(c.a); // $D4CA PHA
       case 0x0d4cb: if (c.cycles >= end) { c.key = 0x0d4cb; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $D4CB LDA $08
@@ -2554,7 +2555,7 @@ function b64(c, bus, ram, rom, end, pc) {
       case 0x0d4cf: if (c.cycles >= end) { c.key = 0x0d4cf; return -1; } c.cycles += 3; c.push(c.a); // $D4CF PHA
       case 0x0d4d0: if (c.cycles >= end) { c.key = 0x0d4d0; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $D4D0 LDA $4003
       case 0x0d4d3: if (c.cycles >= end) { c.key = 0x0d4d3; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $D4D3 AND #$40
-      case 0x0d4d5: if (c.cycles >= end) { c.key = 0x0d4d5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d4f4; } // $D4D5 BEQ $D4F4
+      case 0x0d4d5: if (c.cycles >= end) { c.key = 0x0d4d5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d4f4; } // $D4D5 BEQ $D4F4
       case 0x0d4d7: if (c.cycles >= end) { c.key = 0x0d4d7; return -1; } c.cycles += 4; c.a = c.setNZ(c.pull()); // $D4D7 PLA
       case 0x0d4d8: if (c.cycles >= end) { c.key = 0x0d4d8; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $D4D8 LDX $1F
       case 0x0d4da: if (c.cycles >= end) { c.key = 0x0d4da; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D4DA STA $F5
@@ -2584,17 +2585,17 @@ function b65(c, bus, ram, rom, end, pc) {
       case 0x0d500: if (c.cycles >= end) { c.key = 0x0d500; return -1; } c.cycles += 2;  // $D500 NOP
       case 0x0d501: if (c.cycles >= end) { c.key = 0x0d501; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $D501 LDA $04
       case 0x0d503: if (c.cycles >= end) { c.key = 0x0d503; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $D503 AND #$0F
-      case 0x0d505: if (c.cycles >= end) { c.key = 0x0d505; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D505 BEQ $D520
+      case 0x0d505: if (c.cycles >= end) { c.key = 0x0d505; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D505 BEQ $D520
       case 0x0d507: if (c.cycles >= end) { c.key = 0x0d507; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $D507 CMP #$0F
-      case 0x0d509: if (c.cycles >= end) { c.key = 0x0d509; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D509 BEQ $D520
+      case 0x0d509: if (c.cycles >= end) { c.key = 0x0d509; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D509 BEQ $D520
       case 0x0d50b: if (c.cycles >= end) { c.key = 0x0d50b; return -1; } c.cycles += 2; c.cmp(c.a, 0x0e); // $D50B CMP #$0E
-      case 0x0d50d: if (c.cycles >= end) { c.key = 0x0d50d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D50D BEQ $D520
+      case 0x0d50d: if (c.cycles >= end) { c.key = 0x0d50d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D50D BEQ $D520
       case 0x0d50f: if (c.cycles >= end) { c.key = 0x0d50f; return -1; } c.cycles += 2; c.cmp(c.a, 0x0d); // $D50F CMP #$0D
-      case 0x0d511: if (c.cycles >= end) { c.key = 0x0d511; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D511 BEQ $D520
+      case 0x0d511: if (c.cycles >= end) { c.key = 0x0d511; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D511 BEQ $D520
       case 0x0d513: if (c.cycles >= end) { c.key = 0x0d513; return -1; } c.cycles += 2; c.cmp(c.a, 0x0c); // $D513 CMP #$0C
-      case 0x0d515: if (c.cycles >= end) { c.key = 0x0d515; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D515 BEQ $D520
+      case 0x0d515: if (c.cycles >= end) { c.key = 0x0d515; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D515 BEQ $D520
       case 0x0d517: if (c.cycles >= end) { c.key = 0x0d517; return -1; } c.cycles += 2; c.cmp(c.a, 0x0b); // $D517 CMP #$0B
-      case 0x0d519: if (c.cycles >= end) { c.key = 0x0d519; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d520; continue; } // $D519 BEQ $D520
+      case 0x0d519: if (c.cycles >= end) { c.key = 0x0d519; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d520; continue; } // $D519 BEQ $D520
       case 0x0d51b: if (c.cycles >= end) { c.key = 0x0d51b; return -1; } c.cycles += 2; c.cmp(c.a, 0x0a); // $D51B CMP #$0A
       case 0x0d51d: if (c.cycles >= end) { c.key = 0x0d51d; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D51D STA $F5
       case 0x1d51f: if (c.cycles >= end) { c.key = 0x1d51f; return -1; } c.cycles += 2;  // $D51F* NOP
@@ -2611,9 +2612,9 @@ function b66(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0d528: if (c.cycles >= end) { c.key = 0x0d528; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $D528 LDA $4003
       case 0x0d52b: if (c.cycles >= end) { c.key = 0x0d52b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $D52B AND #$40
-      case 0x0d52d: if (c.cycles >= end) { c.key = 0x0d52d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d53a; continue; } // $D52D BEQ $D53A
+      case 0x0d52d: if (c.cycles >= end) { c.key = 0x0d52d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d53a; continue; } // $D52D BEQ $D53A
       case 0x0d52f: if (c.cycles >= end) { c.key = 0x0d52f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1f]); // $D52F LDA $1F
-      case 0x0d531: if (c.cycles >= end) { c.key = 0x0d531; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d53a; continue; } // $D531 BEQ $D53A
+      case 0x0d531: if (c.cycles >= end) { c.key = 0x0d531; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d53a; continue; } // $D531 BEQ $D53A
       case 0x0d533: if (c.cycles >= end) { c.key = 0x0d533; return -1; } c.cycles += 5; ram[0x08] = c.setNZ((ram[0x08] - 1) & 0xff); // $D533 DEC $08
       case 0x1d535: if (c.cycles >= end) { c.key = 0x1d535; return -1; } c.cycles += 5; ram[0x08] = c.setNZ((ram[0x08] - 1) & 0xff); // $D535* DEC $08
       case 0x1d537: if (c.cycles >= end) { c.key = 0x1d537; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D537* STA $F5
@@ -2624,23 +2625,23 @@ function b66(c, bus, ram, rom, end, pc) {
       case 0x0d540: if (c.cycles >= end) { c.key = 0x0d540; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $D540 LDA $08
       case 0x0d542: if (c.cycles >= end) { c.key = 0x0d542; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $D542 AND #$0F
       case 0x0d544: if (c.cycles >= end) { c.key = 0x0d544; return -1; } c.cycles += 2; c.cmp(c.a, 0x06); // $D544 CMP #$06
-      case 0x0d546: if (c.cycles >= end) { c.key = 0x0d546; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0d570; } // $D546 BCC $D570
+      case 0x0d546: if (c.cycles >= end) { c.key = 0x0d546; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d570; } // $D546 BCC $D570
       case 0x0d548: if (c.cycles >= end) { c.key = 0x0d548; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $D548 CMP #$08
-      case 0x0d54a: if (c.cycles >= end) { c.key = 0x0d54a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0d585; } // $D54A BCC $D585
+      case 0x0d54a: if (c.cycles >= end) { c.key = 0x0d54a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d585; } // $D54A BCC $D585
       case 0x0d54c: if (c.cycles >= end) { c.key = 0x0d54c; return -1; } c.cycles += 2; c.cmp(c.a, 0x0e); // $D54C CMP #$0E
-      case 0x0d54e: if (c.cycles >= end) { c.key = 0x0d54e; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0d583; } // $D54E BCS $D583
+      case 0x0d54e: if (c.cycles >= end) { c.key = 0x0d54e; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d583; } // $D54E BCS $D583
       case 0x0d550: if (c.cycles >= end) { c.key = 0x0d550; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D550 STA $F5
       case 0x0d552: if (c.cycles >= end) { c.key = 0x0d552; return -1; } c.cycles += 2;  // $D552 NOP
       case 0x0d553: if (c.cycles >= end) { c.key = 0x0d553; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $D553 LDA $08
       case 0x0d555: if (c.cycles >= end) { c.key = 0x0d555; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $D555 AND #$F0
       case 0x0d557: if (c.cycles >= end) { c.key = 0x0d557; return -1; } c.cycles += 2; c.cmp(c.a, 0x10); // $D557 CMP #$10
-      case 0x0d559: if (c.cycles >= end) { c.key = 0x0d559; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d585; } // $D559 BEQ $D585
+      case 0x0d559: if (c.cycles >= end) { c.key = 0x0d559; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d585; } // $D559 BEQ $D585
       case 0x0d55b: if (c.cycles >= end) { c.key = 0x0d55b; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $D55B CMP #$40
-      case 0x0d55d: if (c.cycles >= end) { c.key = 0x0d55d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d585; } // $D55D BEQ $D585
+      case 0x0d55d: if (c.cycles >= end) { c.key = 0x0d55d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d585; } // $D55D BEQ $D585
       case 0x0d55f: if (c.cycles >= end) { c.key = 0x0d55f; return -1; } c.cycles += 2; c.cmp(c.a, 0x70); // $D55F CMP #$70
-      case 0x0d561: if (c.cycles >= end) { c.key = 0x0d561; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d585; } // $D561 BEQ $D585
+      case 0x0d561: if (c.cycles >= end) { c.key = 0x0d561; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d585; } // $D561 BEQ $D585
       case 0x0d563: if (c.cycles >= end) { c.key = 0x0d563; return -1; } c.cycles += 2; c.cmp(c.a, 0xa0); // $D563 CMP #$A0
-      case 0x0d565: if (c.cycles >= end) { c.key = 0x0d565; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d585; } return 0x0d567; // $D565 BEQ $D585
+      case 0x0d565: if (c.cycles >= end) { c.key = 0x0d565; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d585; } return 0x0d567; // $D565 BEQ $D585
       default: return pc;
     }
   }
@@ -2649,18 +2650,18 @@ function b67(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d567: if (c.cycles >= end) { c.key = 0x0d567; return -1; } c.cycles += 2; c.cmp(c.a, 0xd0); // $D567 CMP #$D0
-      case 0x0d569: if (c.cycles >= end) { c.key = 0x0d569; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d585; continue; } // $D569 BEQ $D585
-      case 0x0d56b: if (c.cycles >= end) { c.key = 0x0d56b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d585; continue; } // $D56B BNE $D585
+      case 0x0d569: if (c.cycles >= end) { c.key = 0x0d569; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d585; continue; } // $D569 BEQ $D585
+      case 0x0d56b: if (c.cycles >= end) { c.key = 0x0d56b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d585; continue; } // $D56B BNE $D585
       case 0x0d56d: if (c.cycles >= end) { c.key = 0x0d56d; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D56D STA $F5
       case 0x1d56f: if (c.cycles >= end) { c.key = 0x1d56f; return -1; } c.cycles += 2;  // $D56F* NOP
       case 0x0d570: if (c.cycles >= end) { c.key = 0x0d570; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $D570 LDA $08
       case 0x0d572: if (c.cycles >= end) { c.key = 0x0d572; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $D572 AND #$F0
       case 0x0d574: if (c.cycles >= end) { c.key = 0x0d574; return -1; } c.cycles += 2; c.cmp(c.a, 0x30); // $D574 CMP #$30
-      case 0x0d576: if (c.cycles >= end) { c.key = 0x0d576; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d585; continue; } // $D576 BEQ $D585
+      case 0x0d576: if (c.cycles >= end) { c.key = 0x0d576; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d585; continue; } // $D576 BEQ $D585
       case 0x0d578: if (c.cycles >= end) { c.key = 0x0d578; return -1; } c.cycles += 2; c.cmp(c.a, 0x60); // $D578 CMP #$60
-      case 0x0d57a: if (c.cycles >= end) { c.key = 0x0d57a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d585; continue; } // $D57A BEQ $D585
+      case 0x0d57a: if (c.cycles >= end) { c.key = 0x0d57a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d585; continue; } // $D57A BEQ $D585
       case 0x0d57c: if (c.cycles >= end) { c.key = 0x0d57c; return -1; } c.cycles += 2; c.cmp(c.a, 0x90); // $D57C CMP #$90
-      case 0x0d57e: if (c.cycles >= end) { c.key = 0x0d57e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d585; continue; } // $D57E BEQ $D585
+      case 0x0d57e: if (c.cycles >= end) { c.key = 0x0d57e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d585; continue; } // $D57E BEQ $D585
       case 0x0d580: if (c.cycles >= end) { c.key = 0x0d580; return -1; } c.cycles += 2; c.cmp(c.a, 0xc0); // $D580 CMP #$C0
       case 0x0d582: if (c.cycles >= end) { c.key = 0x0d582; return -1; } c.cycles += 3; ram[0xf5] = c.a; pc = 0x1d584; continue; // $D582 STA $F5
       case 0x0d583: if (c.cycles >= end) { c.key = 0x0d583; return -1; } c.cycles += 4; c.sbc(c.read((0x6e + c.x) & 0xff)); pc = 0x0d585; continue; // $D583 SBC $6E,X
@@ -2772,7 +2773,7 @@ function b70(c, bus, ram, rom, end, pc) {
       case 0x0d60d: if (c.cycles >= end) { c.key = 0x0d60d; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D60D LSR A
       case 0x0d60e: if (c.cycles >= end) { c.key = 0x0d60e; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D60E LSR A
       case 0x0d60f: if (c.cycles >= end) { c.key = 0x0d60f; return -1; } c.cycles += 2; c.cmp(c.a, 0x07); // $D60F CMP #$07
-      case 0x0d611: if (c.cycles >= end) { c.key = 0x0d611; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d619; continue; } // $D611 BEQ $D619
+      case 0x0d611: if (c.cycles >= end) { c.key = 0x0d611; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d619; continue; } // $D611 BEQ $D619
       case 0x0d613: if (c.cycles >= end) { c.key = 0x0d613; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $D613 LDA #$00
       case 0x0d615: if (c.cycles >= end) { c.key = 0x0d615; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D615 RTS
       case 0x0d619: if (c.cycles >= end) { c.key = 0x0d619; return -1; } c.cycles += 2; c.a = c.setNZ(0xff); // $D619 LDA #$FF
@@ -2835,7 +2836,7 @@ function b71(c, bus, ram, rom, end, pc) {
       case 0x0d66b: if (c.cycles >= end) { c.key = 0x0d66b; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D66B LSR A
       case 0x0d66c: if (c.cycles >= end) { c.key = 0x0d66c; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $D66C LSR A
       case 0x0d66d: if (c.cycles >= end) { c.key = 0x0d66d; return -1; } c.cycles += 2; c.cmp(c.a, 0x00); // $D66D CMP #$00
-      case 0x0d66f: if (c.cycles >= end) { c.key = 0x0d66f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d68b; } return 0x0d671; // $D66F BEQ $D68B
+      case 0x0d66f: if (c.cycles >= end) { c.key = 0x0d66f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d68b; } return 0x0d671; // $D66F BEQ $D68B
       default: return pc;
     }
   }
@@ -2844,15 +2845,15 @@ function b72(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d671: if (c.cycles >= end) { c.key = 0x0d671; return -1; } c.cycles += 2; c.cmp(c.a, 0x01); // $D671 CMP #$01
-      case 0x0d673: if (c.cycles >= end) { c.key = 0x0d673; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d68b; continue; } // $D673 BEQ $D68B
+      case 0x0d673: if (c.cycles >= end) { c.key = 0x0d673; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d68b; continue; } // $D673 BEQ $D68B
       case 0x0d675: if (c.cycles >= end) { c.key = 0x0d675; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $D675 CMP #$02
-      case 0x0d677: if (c.cycles >= end) { c.key = 0x0d677; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d68b; continue; } // $D677 BEQ $D68B
+      case 0x0d677: if (c.cycles >= end) { c.key = 0x0d677; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d68b; continue; } // $D677 BEQ $D68B
       case 0x0d679: if (c.cycles >= end) { c.key = 0x0d679; return -1; } c.cycles += 2; c.cmp(c.a, 0x09); // $D679 CMP #$09
-      case 0x0d67b: if (c.cycles >= end) { c.key = 0x0d67b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d68b; continue; } // $D67B BEQ $D68B
+      case 0x0d67b: if (c.cycles >= end) { c.key = 0x0d67b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d68b; continue; } // $D67B BEQ $D68B
       case 0x0d67d: if (c.cycles >= end) { c.key = 0x0d67d; return -1; } c.cycles += 2; c.cmp(c.a, 0x0a); // $D67D CMP #$0A
-      case 0x0d67f: if (c.cycles >= end) { c.key = 0x0d67f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d68b; continue; } // $D67F BEQ $D68B
+      case 0x0d67f: if (c.cycles >= end) { c.key = 0x0d67f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d68b; continue; } // $D67F BEQ $D68B
       case 0x0d681: if (c.cycles >= end) { c.key = 0x0d681; return -1; } c.cycles += 2; c.cmp(c.a, 0x0b); // $D681 CMP #$0B
-      case 0x0d683: if (c.cycles >= end) { c.key = 0x0d683; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d68b; continue; } // $D683 BEQ $D68B
+      case 0x0d683: if (c.cycles >= end) { c.key = 0x0d683; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d68b; continue; } // $D683 BEQ $D68B
       case 0x0d685: if (c.cycles >= end) { c.key = 0x0d685; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $D685 LDA #$00
       case 0x0d687: if (c.cycles >= end) { c.key = 0x0d687; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D687 RTS
       case 0x0d68b: if (c.cycles >= end) { c.key = 0x0d68b; return -1; } c.cycles += 2; c.a = c.setNZ(0xff); // $D68B LDA #$FF
@@ -2861,19 +2862,19 @@ function b72(c, bus, ram, rom, end, pc) {
       case 0x1d796: if (c.cycles >= end) { c.key = 0x1d796; return -1; } c.cycles += 2;  // $D796* NOP
       case 0x0d797: if (c.cycles >= end) { c.key = 0x0d797; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6e]); // $D797 LDA $6E
       case 0x0d799: if (c.cycles >= end) { c.key = 0x0d799; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $D799 CMP #$FF
-      case 0x0d79b: if (c.cycles >= end) { c.key = 0x0d79b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d7a0; continue; } // $D79B BNE $D7A0
+      case 0x0d79b: if (c.cycles >= end) { c.key = 0x0d79b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d7a0; continue; } // $D79B BNE $D7A0
       case 0x0d79d: if (c.cycles >= end) { c.key = 0x0d79d; return -1; } c.cycles += 3; return 0x0d863; // $D79D JMP $D863
       case 0x0d7a0: if (c.cycles >= end) { c.key = 0x0d7a0; return -1; } c.cycles += 6; c.push(0xd7); c.push(0xa2); return 0x0e672; // $D7A0 JSR $E672
       case 0x0d7a3: if (c.cycles >= end) { c.key = 0x0d7a3; return -1; } c.cycles += 5; ram[0x6e] = c.setNZ((ram[0x6e] + 1) & 0xff); // $D7A3 INC $6E
       case 0x1d7a5: if (c.cycles >= end) { c.key = 0x1d7a5; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6e]); // $D7A5* LDA $6E
       case 0x0d7a7: if (c.cycles >= end) { c.key = 0x0d7a7; return -1; } c.cycles += 2; c.cmp(c.a, 0x01); // $D7A7 CMP #$01
-      case 0x0d7a9: if (c.cycles >= end) { c.key = 0x0d7a9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d7c5; } // $D7A9 BEQ $D7C5
+      case 0x0d7a9: if (c.cycles >= end) { c.key = 0x0d7a9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d7c5; } // $D7A9 BEQ $D7C5
       case 0x0d7ab: if (c.cycles >= end) { c.key = 0x0d7ab; return -1; } c.cycles += 2; c.cmp(c.a, 0x09); // $D7AB CMP #$09
-      case 0x0d7ad: if (c.cycles >= end) { c.key = 0x0d7ad; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d7fa; } // $D7AD BEQ $D7FA
+      case 0x0d7ad: if (c.cycles >= end) { c.key = 0x0d7ad; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d7fa; } // $D7AD BEQ $D7FA
       case 0x0d7af: if (c.cycles >= end) { c.key = 0x0d7af; return -1; } c.cycles += 2; c.cmp(c.a, 0x11); // $D7AF CMP #$11
       case 0x0d7b1: if (c.cycles >= end) { c.key = 0x0d7b1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0d819; } // $D7B1 BEQ $D819
       case 0x0d7b3: if (c.cycles >= end) { c.key = 0x0d7b3; return -1; } c.cycles += 2; c.cmp(c.a, 0x19); // $D7B3 CMP #$19
-      case 0x0d7b5: if (c.cycles >= end) { c.key = 0x0d7b5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d791; continue; } // $D7B5 BEQ $D791
+      case 0x0d7b5: if (c.cycles >= end) { c.key = 0x0d7b5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d791; continue; } // $D7B5 BEQ $D791
       case 0x0d7b7: if (c.cycles >= end) { c.key = 0x0d7b7; return -1; } c.cycles += 2; c.cmp(c.a, 0x22); return 0x0d7b9; // $D7B7 CMP #$22
       default: return pc;
     }
@@ -2882,7 +2883,7 @@ function b72(c, bus, ram, rom, end, pc) {
 function b73(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0d7b9: if (c.cycles >= end) { c.key = 0x0d7b9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d7bf; continue; } // $D7B9 BEQ $D7BF
+      case 0x0d7b9: if (c.cycles >= end) { c.key = 0x0d7b9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d7bf; continue; } // $D7B9 BEQ $D7BF
       case 0x0d7bb: if (c.cycles >= end) { c.key = 0x0d7bb; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $D7BB RTS
       case 0x0d7bf: if (c.cycles >= end) { c.key = 0x0d7bf; return -1; } c.cycles += 3; return 0x0d857; // $D7BF JMP $D857
       case 0x0d7c5: if (c.cycles >= end) { c.key = 0x0d7c5; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xba]); // $D7C5 LDA $BA
@@ -2904,7 +2905,7 @@ function b73(c, bus, ram, rom, end, pc) {
       case 0x0d7e9: if (c.cycles >= end) { c.key = 0x0d7e9; return -1; } c.cycles += 4; c.write((0x2b + c.x) & 0xff, c.a); // $D7E9 STA $2B,X
       case 0x0d7eb: if (c.cycles >= end) { c.key = 0x0d7eb; return -1; } c.cycles += 2; c.p &= ~0x08; // $D7EB CLD
       case 0x0d7ec: if (c.cycles >= end) { c.key = 0x0d7ec; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $D7EC LDA $1B
-      case 0x0d7ee: if (c.cycles >= end) { c.key = 0x0d7ee; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d7f6; continue; } // $D7EE BEQ $D7F6
+      case 0x0d7ee: if (c.cycles >= end) { c.key = 0x0d7ee; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d7f6; continue; } // $D7EE BEQ $D7F6
       case 0x0d7f0: if (c.cycles >= end) { c.key = 0x0d7f0; return -1; } c.cycles += 6; c.push(0xd7); c.push(0xf2); return 0x0ca94; // $D7F0 JSR $CA94
       case 0x0d7f3: if (c.cycles >= end) { c.key = 0x0d7f3; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $D7F3 STA $F6
       case 0x1d7f5: if (c.cycles >= end) { c.key = 0x1d7f5; return -1; } c.cycles += 2;  // $D7F5* NOP
@@ -2921,7 +2922,7 @@ function b73(c, bus, ram, rom, end, pc) {
 function b74(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0d804: if (c.cycles >= end) { c.key = 0x0d804; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d80f; continue; } // $D804 BNE $D80F
+      case 0x0d804: if (c.cycles >= end) { c.key = 0x0d804; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d80f; continue; } // $D804 BNE $D80F
       case 0x0d806: if (c.cycles >= end) { c.key = 0x0d806; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xd873, c.y))); // $D806 LDA $D873,Y
       case 0x0d809: if (c.cycles >= end) { c.key = 0x0d809; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $D809 STA $181D
       case 0x0d80c: if (c.cycles >= end) { c.key = 0x0d80c; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $D80C STA $F6
@@ -2934,7 +2935,7 @@ function b74(c, bus, ram, rom, end, pc) {
       case 0x0d81c: if (c.cycles >= end) { c.key = 0x0d81c; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $D81C TAY
       case 0x0d81d: if (c.cycles >= end) { c.key = 0x0d81d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181d)); // $D81D LDA $181D
       case 0x0d820: if (c.cycles >= end) { c.key = 0x0d820; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xd873, c.y))); // $D820 CMP $D873,Y
-      case 0x0d823: if (c.cycles >= end) { c.key = 0x0d823; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d82e; continue; } // $D823 BNE $D82E
+      case 0x0d823: if (c.cycles >= end) { c.key = 0x0d823; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d82e; continue; } // $D823 BNE $D82E
       case 0x0d825: if (c.cycles >= end) { c.key = 0x0d825; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xd878, c.y))); // $D825 LDA $D878,Y
       case 0x0d828: if (c.cycles >= end) { c.key = 0x0d828; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $D828 STA $181D
       case 0x0d82b: if (c.cycles >= end) { c.key = 0x0d82b; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $D82B STA $F6
@@ -2947,7 +2948,7 @@ function b74(c, bus, ram, rom, end, pc) {
       case 0x0d83b: if (c.cycles >= end) { c.key = 0x0d83b; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $D83B TAY
       case 0x0d83c: if (c.cycles >= end) { c.key = 0x0d83c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181d)); // $D83C LDA $181D
       case 0x0d83f: if (c.cycles >= end) { c.key = 0x0d83f; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xd878, c.y))); // $D83F CMP $D878,Y
-      case 0x0d842: if (c.cycles >= end) { c.key = 0x0d842; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d84d; continue; } // $D842 BNE $D84D
+      case 0x0d842: if (c.cycles >= end) { c.key = 0x0d842; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d84d; continue; } // $D842 BNE $D84D
       case 0x0d844: if (c.cycles >= end) { c.key = 0x0d844; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xd87d, c.y))); // $D844 LDA $D87D,Y
       case 0x0d847: if (c.cycles >= end) { c.key = 0x0d847; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $D847 STA $181D
       case 0x0d84a: if (c.cycles >= end) { c.key = 0x0d84a; return -1; } c.cycles += 3; ram[0xf6] = c.a; // $D84A STA $F6
@@ -2972,9 +2973,9 @@ function b75(c, bus, ram, rom, end, pc) {
       case 0x0d898: if (c.cycles >= end) { c.key = 0x0d898; return -1; } c.cycles += 2;  // $D898 NOP
       case 0x0d899: if (c.cycles >= end) { c.key = 0x0d899; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xba]); // $D899 LDA $BA
       case 0x0d89b: if (c.cycles >= end) { c.key = 0x0d89b; return -1; } c.cycles += 2; c.cmp(c.a, 0x06); // $D89B CMP #$06
-      case 0x0d89d: if (c.cycles >= end) { c.key = 0x0d89d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d8ef; } // $D89D BEQ $D8EF
+      case 0x0d89d: if (c.cycles >= end) { c.key = 0x0d89d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d8ef; } // $D89D BEQ $D8EF
       case 0x0d89f: if (c.cycles >= end) { c.key = 0x0d89f; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $D89F CMP #$08
-      case 0x0d8a1: if (c.cycles >= end) { c.key = 0x0d8a1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d8ef; } // $D8A1 BEQ $D8EF
+      case 0x0d8a1: if (c.cycles >= end) { c.key = 0x0d8a1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d8ef; } // $D8A1 BEQ $D8EF
       case 0x0d8a3: if (c.cycles >= end) { c.key = 0x0d8a3; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181e)); // $D8A3 LDA $181E
       case 0x0d8a6: if (c.cycles >= end) { c.key = 0x0d8a6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $D8A6 EOR #$FF
       case 0x0d8a8: if (c.cycles >= end) { c.key = 0x0d8a8; return -1; } c.cycles += 2; c.p |= 0x01; // $D8A8 SEC
@@ -3013,15 +3014,15 @@ function b76(c, bus, ram, rom, end, pc) {
       case 0x0d8d4: if (c.cycles >= end) { c.key = 0x0d8d4; return -1; } c.cycles += 2; c.y = c.setNZ(0x24); // $D8D4 LDY #$24
       case 0x0d8d6: if (c.cycles >= end) { c.key = 0x0d8d6; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x05, true))); // $D8D6 LDA ($05),Y
       case 0x0d8d8: if (c.cycles >= end) { c.key = 0x0d8d8; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $D8D8 AND #$03
-      case 0x0d8da: if (c.cycles >= end) { c.key = 0x0d8da; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d8ef; continue; } // $D8DA BEQ $D8EF
+      case 0x0d8da: if (c.cycles >= end) { c.key = 0x0d8da; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d8ef; continue; } // $D8DA BEQ $D8EF
       case 0x0d8dc: if (c.cycles >= end) { c.key = 0x0d8dc; return -1; } c.cycles += 2; c.y = c.setNZ(0x04); // $D8DC LDY #$04
       case 0x0d8de: if (c.cycles >= end) { c.key = 0x0d8de; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x05, true))); // $D8DE LDA ($05),Y
       case 0x0d8e0: if (c.cycles >= end) { c.key = 0x0d8e0; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $D8E0 AND #$03
-      case 0x0d8e2: if (c.cycles >= end) { c.key = 0x0d8e2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d8ef; continue; } // $D8E2 BEQ $D8EF
+      case 0x0d8e2: if (c.cycles >= end) { c.key = 0x0d8e2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d8ef; continue; } // $D8E2 BEQ $D8EF
       case 0x0d8e4: if (c.cycles >= end) { c.key = 0x0d8e4; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x03, true))); // $D8E4 LDA ($03),Y
       case 0x0d8e6: if (c.cycles >= end) { c.key = 0x0d8e6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x1f); // $D8E6 AND #$1F
       case 0x0d8e8: if (c.cycles >= end) { c.key = 0x0d8e8; return -1; } c.cycles += 2; c.cmp(c.a, 0x04); // $D8E8 CMP #$04
-      case 0x0d8ea: if (c.cycles >= end) { c.key = 0x0d8ea; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0d8f2; continue; } // $D8EA BCC $D8F2
+      case 0x0d8ea: if (c.cycles >= end) { c.key = 0x0d8ea; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d8f2; continue; } // $D8EA BCC $D8F2
       case 0x0d8ec: if (c.cycles >= end) { c.key = 0x0d8ec; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D8EC STA $F5
       case 0x0d8ee: if (c.cycles >= end) { c.key = 0x0d8ee; return -1; } c.cycles += 2;  // $D8EE NOP
       case 0x0d8ef: if (c.cycles >= end) { c.key = 0x0d8ef; return -1; } c.cycles += 3; return 0x0da55; // $D8EF JMP $DA55
@@ -3039,32 +3040,32 @@ function b77(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d8ff: if (c.cycles >= end) { c.key = 0x0d8ff; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $D8FF CMP #$02
-      case 0x0d901: if (c.cycles >= end) { c.key = 0x0d901; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d918; continue; } // $D901 BEQ $D918
+      case 0x0d901: if (c.cycles >= end) { c.key = 0x0d901; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d918; continue; } // $D901 BEQ $D918
       case 0x0d903: if (c.cycles >= end) { c.key = 0x0d903; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D903 INY
       case 0x0d904: if (c.cycles >= end) { c.key = 0x0d904; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D904 STA $F5
       case 0x1d906: if (c.cycles >= end) { c.key = 0x1d906; return -1; } c.cycles += 2;  // $D906* NOP
       case 0x0d907: if (c.cycles >= end) { c.key = 0x0d907; return -1; } c.cycles += 6; c.push(0xd9); c.push(0x09); return 0x0da58; // $D907 JSR $DA58
-      case 0x0d90a: if (c.cycles >= end) { c.key = 0x0d90a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d92b; continue; } // $D90A BEQ $D92B
+      case 0x0d90a: if (c.cycles >= end) { c.key = 0x0d90a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d92b; continue; } // $D90A BEQ $D92B
       case 0x0d90c: if (c.cycles >= end) { c.key = 0x0d90c; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D90C INY
       case 0x0d90d: if (c.cycles >= end) { c.key = 0x0d90d; return -1; } c.cycles += 2; c.cmp(c.y, 0x08); // $D90D CPY #$08
-      case 0x0d90f: if (c.cycles >= end) { c.key = 0x0d90f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d907; continue; } // $D90F BNE $D907
+      case 0x0d90f: if (c.cycles >= end) { c.key = 0x0d90f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d907; continue; } // $D90F BNE $D907
       case 0x0d911: if (c.cycles >= end) { c.key = 0x0d911; return -1; } c.cycles += 2; c.y = c.setNZ(0x04); // $D911 LDY #$04
-      case 0x0d913: if (c.cycles >= end) { c.key = 0x0d913; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d974; } // $D913 BNE $D974
+      case 0x0d913: if (c.cycles >= end) { c.key = 0x0d913; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d974; } // $D913 BNE $D974
       case 0x0d915: if (c.cycles >= end) { c.key = 0x0d915; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D915 STA $F5
       case 0x1d917: if (c.cycles >= end) { c.key = 0x1d917; return -1; } c.cycles += 2;  // $D917* NOP
       case 0x0d918: if (c.cycles >= end) { c.key = 0x0d918; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D918 DEY
       case 0x0d919: if (c.cycles >= end) { c.key = 0x0d919; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D919 STA $F5
       case 0x0d91b: if (c.cycles >= end) { c.key = 0x0d91b; return -1; } c.cycles += 2;  // $D91B NOP
       case 0x0d91c: if (c.cycles >= end) { c.key = 0x0d91c; return -1; } c.cycles += 6; c.push(0xd9); c.push(0x1e); return 0x0da58; // $D91C JSR $DA58
-      case 0x0d91f: if (c.cycles >= end) { c.key = 0x0d91f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d94f; } // $D91F BEQ $D94F
+      case 0x0d91f: if (c.cycles >= end) { c.key = 0x0d91f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d94f; } // $D91F BEQ $D94F
       case 0x0d921: if (c.cycles >= end) { c.key = 0x0d921; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D921 DEY
-      case 0x0d922: if (c.cycles >= end) { c.key = 0x0d922; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d91c; continue; } // $D922 BNE $D91C
+      case 0x0d922: if (c.cycles >= end) { c.key = 0x0d922; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d91c; continue; } // $D922 BNE $D91C
       case 0x0d924: if (c.cycles >= end) { c.key = 0x0d924; return -1; } c.cycles += 2; c.y = c.setNZ(0x01); // $D924 LDY #$01
-      case 0x0d926: if (c.cycles >= end) { c.key = 0x0d926; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d974; } // $D926 BNE $D974
+      case 0x0d926: if (c.cycles >= end) { c.key = 0x0d926; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d974; } // $D926 BNE $D974
       case 0x0d928: if (c.cycles >= end) { c.key = 0x0d928; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D928 STA $F5
       case 0x0d92a: if (c.cycles >= end) { c.key = 0x0d92a; return -1; } c.cycles += 2;  // $D92A NOP
       case 0x0d92b: if (c.cycles >= end) { c.key = 0x0d92b; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $D92B TXA
-      case 0x0d92c: if (c.cycles >= end) { c.key = 0x0d92c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d93b; } // $D92C BNE $D93B
+      case 0x0d92c: if (c.cycles >= end) { c.key = 0x0d92c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d93b; } // $D92C BNE $D93B
       case 0x0d92e: if (c.cycles >= end) { c.key = 0x0d92e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D92E STA $F5
       case 0x0d930: if (c.cycles >= end) { c.key = 0x0d930; return -1; } c.cycles += 2;  // $D930 NOP
       case 0x0d931: if (c.cycles >= end) { c.key = 0x0d931; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $D931 INY
@@ -3077,7 +3078,7 @@ function b77(c, bus, ram, rom, end, pc) {
 function b78(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0d936: if (c.cycles >= end) { c.key = 0x0d936; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d931; } // $D936 BNE $D931
+      case 0x0d936: if (c.cycles >= end) { c.key = 0x0d936; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d931; } // $D936 BNE $D931
       case 0x0d938: if (c.cycles >= end) { c.key = 0x0d938; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D938 STA $F5
       case 0x0d93a: if (c.cycles >= end) { c.key = 0x0d93a; return -1; } c.cycles += 2;  // $D93A NOP
       case 0x0d93b: if (c.cycles >= end) { c.key = 0x0d93b; return -1; } c.cycles += 2; c.x = c.setNZ(0x04); // $D93B LDX #$04
@@ -3088,18 +3089,18 @@ function b78(c, bus, ram, rom, end, pc) {
       case 0x0d943: if (c.cycles >= end) { c.key = 0x0d943; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x1c); // $D943 AND #$1C
       case 0x0d945: if (c.cycles >= end) { c.key = 0x0d945; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0d8ef; } // $D945 BEQ $D8EF
       case 0x0d947: if (c.cycles >= end) { c.key = 0x0d947; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $D947 DEX
-      case 0x0d948: if (c.cycles >= end) { c.key = 0x0d948; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d940; continue; } // $D948 BNE $D940
-      case 0x0d94a: if (c.cycles >= end) { c.key = 0x0d94a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0d974; } // $D94A BEQ $D974
+      case 0x0d948: if (c.cycles >= end) { c.key = 0x0d948; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d940; continue; } // $D948 BNE $D940
+      case 0x0d94a: if (c.cycles >= end) { c.key = 0x0d94a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d974; } // $D94A BEQ $D974
       case 0x0d94c: if (c.cycles >= end) { c.key = 0x0d94c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D94C STA $F5
       case 0x1d94e: if (c.cycles >= end) { c.key = 0x1d94e; return -1; } c.cycles += 2;  // $D94E* NOP
       case 0x0d94f: if (c.cycles >= end) { c.key = 0x0d94f; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $D94F TXA
-      case 0x0d950: if (c.cycles >= end) { c.key = 0x0d950; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d95f; continue; } // $D950 BNE $D95F
+      case 0x0d950: if (c.cycles >= end) { c.key = 0x0d950; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d95f; continue; } // $D950 BNE $D95F
       case 0x0d952: if (c.cycles >= end) { c.key = 0x0d952; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D952 STA $F5
       case 0x1d954: if (c.cycles >= end) { c.key = 0x1d954; return -1; } c.cycles += 2;  // $D954* NOP
       case 0x0d955: if (c.cycles >= end) { c.key = 0x0d955; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D955 DEY
       case 0x0d956: if (c.cycles >= end) { c.key = 0x0d956; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x05, true))); // $D956 LDA ($05),Y
       case 0x0d958: if (c.cycles >= end) { c.key = 0x0d958; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $D958 AND #$03
-      case 0x0d95a: if (c.cycles >= end) { c.key = 0x0d95a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d955; continue; } // $D95A BNE $D955
+      case 0x0d95a: if (c.cycles >= end) { c.key = 0x0d95a; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d955; continue; } // $D95A BNE $D955
       case 0x0d95c: if (c.cycles >= end) { c.key = 0x0d95c; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D95C STA $F5
       case 0x1d95e: if (c.cycles >= end) { c.key = 0x1d95e; return -1; } c.cycles += 2;  // $D95E* NOP
       case 0x0d95f: if (c.cycles >= end) { c.key = 0x0d95f; return -1; } c.cycles += 2; c.x = c.setNZ(0x04); // $D95F LDX #$04
@@ -3117,7 +3118,7 @@ function b79(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0d96b: if (c.cycles >= end) { c.key = 0x0d96b; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $D96B DEX
-      case 0x0d96c: if (c.cycles >= end) { c.key = 0x0d96c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0d964; } // $D96C BNE $D964
+      case 0x0d96c: if (c.cycles >= end) { c.key = 0x0d96c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0d964; } // $D96C BNE $D964
       case 0x0d96e: if (c.cycles >= end) { c.key = 0x0d96e; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D96E DEY
       case 0x0d96f: if (c.cycles >= end) { c.key = 0x0d96f; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D96F DEY
       case 0x0d970: if (c.cycles >= end) { c.key = 0x0d970; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $D970 DEY
@@ -3157,16 +3158,16 @@ function b80(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0d9a2: if (c.cycles >= end) { c.key = 0x0d9a2; return -1; } c.cycles += 2;  // $D9A2 NOP
       case 0x0d9a3: if (c.cycles >= end) { c.key = 0x0d9a3; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.x))); // $D9A3 LDA $0202,X
-      case 0x0d9a6: if (c.cycles >= end) { c.key = 0x0d9a6; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d9c6; continue; } // $D9A6 BEQ $D9C6
+      case 0x0d9a6: if (c.cycles >= end) { c.key = 0x0d9a6; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d9c6; continue; } // $D9A6 BEQ $D9C6
       case 0x0d9a8: if (c.cycles >= end) { c.key = 0x0d9a8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0203, c.x))); // $D9A8 LDA $0203,X
       case 0x0d9ab: if (c.cycles >= end) { c.key = 0x0d9ab; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $D9AB EOR #$FF
       case 0x0d9ad: if (c.cycles >= end) { c.key = 0x0d9ad; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $D9AD AND #$F8
       case 0x0d9af: if (c.cycles >= end) { c.key = 0x0d9af; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x09]); // $D9AF CMP $09
-      case 0x0d9b1: if (c.cycles >= end) { c.key = 0x0d9b1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0d9bf; continue; } // $D9B1 BNE $D9BF
+      case 0x0d9b1: if (c.cycles >= end) { c.key = 0x0d9b1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d9bf; continue; } // $D9B1 BNE $D9BF
       case 0x0d9b3: if (c.cycles >= end) { c.key = 0x0d9b3; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0204, c.x))); // $D9B3 LDA $0204,X
       case 0x0d9b6: if (c.cycles >= end) { c.key = 0x0d9b6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $D9B6 AND #$F8
       case 0x0d9b8: if (c.cycles >= end) { c.key = 0x0d9b8; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x07]); // $D9B8 CMP $07
-      case 0x0d9ba: if (c.cycles >= end) { c.key = 0x0d9ba; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0d9cc; continue; } // $D9BA BEQ $D9CC
+      case 0x0d9ba: if (c.cycles >= end) { c.key = 0x0d9ba; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d9cc; continue; } // $D9BA BEQ $D9CC
       case 0x0d9bc: if (c.cycles >= end) { c.key = 0x0d9bc; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $D9BC STA $F5
       case 0x1d9be: if (c.cycles >= end) { c.key = 0x1d9be; return -1; } c.cycles += 2;  // $D9BE* NOP
       case 0x0d9bf: if (c.cycles >= end) { c.key = 0x0d9bf; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $D9BF INX
@@ -3177,7 +3178,7 @@ function b80(c, bus, ram, rom, end, pc) {
       case 0x0d9c6: if (c.cycles >= end) { c.key = 0x0d9c6; return -1; } c.cycles += 3; return 0x0da31; // $D9C6 JMP $DA31
       case 0x0d9cc: if (c.cycles >= end) { c.key = 0x0d9cc; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.x))); // $D9CC LDA $0202,X
       case 0x0d9cf: if (c.cycles >= end) { c.key = 0x0d9cf; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $D9CF CMP #$0F
-      case 0x0d9d1: if (c.cycles >= end) { c.key = 0x0d9d1; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0d9bf; continue; } // $D9D1 BCS $D9BF
+      case 0x0d9d1: if (c.cycles >= end) { c.key = 0x0d9d1; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0d9bf; continue; } // $D9D1 BCS $D9BF
       case 0x0d9d3: if (c.cycles >= end) { c.key = 0x0d9d3; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $D9D3 AND #$0F
       case 0x0d9d5: if (c.cycles >= end) { c.key = 0x0d9d5; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $D9D5 ORA #$10
       case 0x0d9d7: if (c.cycles >= end) { c.key = 0x0d9d7; return -1; } c.cycles += 5; c.write((0x0202 + c.x) & 0xffff, c.a); // $D9D7 STA $0202,X
@@ -3210,11 +3211,11 @@ function b81(c, bus, ram, rom, end, pc) {
       case 0x0da00: if (c.cycles >= end) { c.key = 0x0da00; return -1; } c.cycles += 2; c.p &= ~0x01; // $DA00 CLC
       case 0x0da01: if (c.cycles >= end) { c.key = 0x0da01; return -1; } c.cycles += 2; c.adc(0x08); // $DA01 ADC #$08
       case 0x0da03: if (c.cycles >= end) { c.key = 0x0da03; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0x0203, c.x))); // $DA03 CMP $0203,X
-      case 0x0da06: if (c.cycles >= end) { c.key = 0x0da06; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0da26; } // $DA06 BCS $DA26
+      case 0x0da06: if (c.cycles >= end) { c.key = 0x0da06; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0da26; } // $DA06 BCS $DA26
       case 0x0da08: if (c.cycles >= end) { c.key = 0x0da08; return -1; } c.cycles += 2; c.p &= ~0x01; // $DA08 CLC
       case 0x0da09: if (c.cycles >= end) { c.key = 0x0da09; return -1; } c.cycles += 2; c.adc(0x20); // $DA09 ADC #$20
       case 0x0da0b: if (c.cycles >= end) { c.key = 0x0da0b; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0x0203, c.x))); // $DA0B CMP $0203,X
-      case 0x0da0e: if (c.cycles >= end) { c.key = 0x0da0e; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0da26; } // $DA0E BCC $DA26
+      case 0x0da0e: if (c.cycles >= end) { c.key = 0x0da0e; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0da26; } // $DA0E BCC $DA26
       case 0x0da10: if (c.cycles >= end) { c.key = 0x0da10; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1803, c.y))); // $DA10 LDA $1803,Y
       case 0x0da13: if (c.cycles >= end) { c.key = 0x0da13; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DA13 AND #$F8
       case 0x0da15: if (c.cycles >= end) { c.key = 0x0da15; return -1; } c.cycles += 2; c.p &= ~0x01; // $DA15 CLC
@@ -3223,7 +3224,7 @@ function b81(c, bus, ram, rom, end, pc) {
       case 0x0da1a: if (c.cycles >= end) { c.key = 0x0da1a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0204, c.x))); // $DA1A LDA $0204,X
       case 0x0da1d: if (c.cycles >= end) { c.key = 0x0da1d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DA1D AND #$F8
       case 0x0da1f: if (c.cycles >= end) { c.key = 0x0da1f; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x0b]); // $DA1F CMP $0B
-      case 0x0da21: if (c.cycles >= end) { c.key = 0x0da21; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0da36; } // $DA21 BEQ $DA36
+      case 0x0da21: if (c.cycles >= end) { c.key = 0x0da21; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0da36; } // $DA21 BEQ $DA36
       case 0x0da23: if (c.cycles >= end) { c.key = 0x0da23; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DA23 STA $F5
       case 0x0da25: if (c.cycles >= end) { c.key = 0x0da25; return -1; } c.cycles += 2;  return 0x0da26; // $DA25 NOP
       default: return pc;
@@ -3239,7 +3240,7 @@ function b82(c, bus, ram, rom, end, pc) {
       case 0x0da2c: if (c.cycles >= end) { c.key = 0x0da2c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 2; return 0x0d9f0; } // $DA2C BNE $D9F0
       case 0x0da2e: if (c.cycles >= end) { c.key = 0x0da2e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DA2E STA $F5
       case 0x0da30: if (c.cycles >= end) { c.key = 0x0da30; return -1; } c.cycles += 2;  // $DA30 NOP
-      case 0x0da31: if (c.cycles >= end) { c.key = 0x0da31; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0da55; continue; } // $DA31 BEQ $DA55
+      case 0x0da31: if (c.cycles >= end) { c.key = 0x0da31; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0da55; continue; } // $DA31 BEQ $DA55
       case 0x0da33: if (c.cycles >= end) { c.key = 0x0da33; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DA33 STA $F5
       case 0x0da35: if (c.cycles >= end) { c.key = 0x0da35; return -1; } c.cycles += 2;  // $DA35 NOP
       case 0x0da36: if (c.cycles >= end) { c.key = 0x0da36; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x0a]); // $DA36 LDY $0A
@@ -3258,11 +3259,11 @@ function b82(c, bus, ram, rom, end, pc) {
       case 0x0da59: if (c.cycles >= end) { c.key = 0x0da59; return -1; } c.cycles += 2; c.x = c.setNZ(0xff); // $DA59 LDX #$FF
       case 0x0da5b: if (c.cycles >= end) { c.key = 0x0da5b; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x05, true))); // $DA5B LDA ($05),Y
       case 0x0da5d: if (c.cycles >= end) { c.key = 0x0da5d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $DA5D AND #$03
-      case 0x0da5f: if (c.cycles >= end) { c.key = 0x0da5f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0da86; } // $DA5F BEQ $DA86
+      case 0x0da5f: if (c.cycles >= end) { c.key = 0x0da5f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0da86; } // $DA5F BEQ $DA86
       case 0x0da61: if (c.cycles >= end) { c.key = 0x0da61; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $DA61 INX
       case 0x0da62: if (c.cycles >= end) { c.key = 0x0da62; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x03, true))); // $DA62 LDA ($03),Y
       case 0x0da64: if (c.cycles >= end) { c.key = 0x0da64; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x1c); // $DA64 AND #$1C
-      case 0x0da66: if (c.cycles >= end) { c.key = 0x0da66; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0da86; } // $DA66 BEQ $DA86
+      case 0x0da66: if (c.cycles >= end) { c.key = 0x0da66; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0da86; } // $DA66 BEQ $DA86
       case 0x0da68: if (c.cycles >= end) { c.key = 0x0da68; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DA68 STA $F5
       case 0x0da6a: if (c.cycles >= end) { c.key = 0x0da6a; return -1; } c.cycles += 2;  return 0x0da6b; // $DA6A NOP
       default: return pc;
@@ -3293,7 +3294,7 @@ function b83(c, bus, ram, rom, end, pc) {
       case 0x0da8a: if (c.cycles >= end) { c.key = 0x0da8a; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $DA8A LDY #$00
       case 0x0da8c: if (c.cycles >= end) { c.key = 0x0da8c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4004)); // $DA8C LDA $4004
       case 0x0da8f: if (c.cycles >= end) { c.key = 0x0da8f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x08); // $DA8F AND #$08
-      case 0x0da91: if (c.cycles >= end) { c.key = 0x0da91; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0da98; continue; } // $DA91 BNE $DA98
+      case 0x0da91: if (c.cycles >= end) { c.key = 0x0da91; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0da98; continue; } // $DA91 BNE $DA98
       case 0x0da93: if (c.cycles >= end) { c.key = 0x0da93; return -1; } c.cycles += 2; c.y = c.setNZ(0x06); // $DA93 LDY #$06
       case 0x0da95: if (c.cycles >= end) { c.key = 0x0da95; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DA95 STA $F5
       case 0x0da97: if (c.cycles >= end) { c.key = 0x0da97; return -1; } c.cycles += 2;  // $DA97 NOP
@@ -3327,7 +3328,7 @@ function b84(c, bus, ram, rom, end, pc) {
       case 0x0dabf: if (c.cycles >= end) { c.key = 0x0dabf; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $DABF LSR A
       case 0x0dac0: if (c.cycles >= end) { c.key = 0x0dac0; return -1; } c.cycles += 3; ram[0x03] = c.a; // $DAC0 STA $03
       case 0x0dac2: if (c.cycles >= end) { c.key = 0x0dac2; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $DAC2 CMP #$08
-      case 0x0dac4: if (c.cycles >= end) { c.key = 0x0dac4; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0dac8; continue; } // $DAC4 BCC $DAC8
+      case 0x0dac4: if (c.cycles >= end) { c.key = 0x0dac4; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dac8; continue; } // $DAC4 BCC $DAC8
       case 0x0dac6: if (c.cycles >= end) { c.key = 0x0dac6; return -1; } c.cycles += 2; c.a = c.setNZ(0x07); // $DAC6 LDA #$07
       case 0x0dac8: if (c.cycles >= end) { c.key = 0x0dac8; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $DAC8 TAX
       case 0x0dac9: if (c.cycles >= end) { c.key = 0x0dac9; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xdaf0, c.x))); // $DAC9 LDA $DAF0,X
@@ -3336,7 +3337,7 @@ function b84(c, bus, ram, rom, end, pc) {
       case 0x0dad0: if (c.cycles >= end) { c.key = 0x0dad0; return -1; } c.cycles += 2;  // $DAD0 NOP
       case 0x0dad1: if (c.cycles >= end) { c.key = 0x0dad1; return -1; } c.cycles += 5; c.write((0x0091 + c.y) & 0xffff, c.a); // $DAD1 STA $0091,Y
       case 0x0dad4: if (c.cycles >= end) { c.key = 0x0dad4; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $DAD4 DEY
-      case 0x0dad5: if (c.cycles >= end) { c.key = 0x0dad5; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0dad1; continue; } // $DAD5 BPL $DAD1
+      case 0x0dad5: if (c.cycles >= end) { c.key = 0x0dad5; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dad1; continue; } // $DAD5 BPL $DAD1
       case 0x0dad7: if (c.cycles >= end) { c.key = 0x0dad7; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xdaf9, c.x))); // $DAD7 LDA $DAF9,X
       case 0x0dada: if (c.cycles >= end) { c.key = 0x0dada; return -1; } c.cycles += 2; c.y = c.setNZ(0x05); // $DADA LDY #$05
       case 0x0dadc: if (c.cycles >= end) { c.key = 0x0dadc; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DADC STA $F5
@@ -3350,7 +3351,7 @@ function b84(c, bus, ram, rom, end, pc) {
 function b85(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0dae3: if (c.cycles >= end) { c.key = 0x0dae3; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0dadf; } // $DAE3 BPL $DADF
+      case 0x0dae3: if (c.cycles >= end) { c.key = 0x0dae3; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dadf; } // $DAE3 BPL $DADF
       case 0x0dae5: if (c.cycles >= end) { c.key = 0x0dae5; return -1; } c.cycles += 4; c.a = c.setNZ(rom[0xdaf4]); // $DAE5 LDA $DAF4
       case 0x0dae8: if (c.cycles >= end) { c.key = 0x0dae8; return -1; } c.cycles += 3; ram[0x98] = c.a; // $DAE8 STA $98
       case 0x0daea: if (c.cycles >= end) { c.key = 0x0daea; return -1; } c.cycles += 4; c.a = c.setNZ(rom[0xdafd]); // $DAEA LDA $DAFD
@@ -3358,28 +3359,28 @@ function b85(c, bus, ram, rom, end, pc) {
       case 0x0daef: if (c.cycles >= end) { c.key = 0x0daef; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $DAEF RTS
       case 0x0db28: if (c.cycles >= end) { c.key = 0x0db28; return -1; } c.cycles += 2;  // $DB28 NOP
       case 0x0db29: if (c.cycles >= end) { c.key = 0x0db29; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $DB29 LDA $6F
-      case 0x0db2b: if (c.cycles >= end) { c.key = 0x0db2b; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0db9b; } // $DB2B BMI $DB9B
+      case 0x0db2b: if (c.cycles >= end) { c.key = 0x0db2b; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0db9b; } // $DB2B BMI $DB9B
       case 0x0db2d: if (c.cycles >= end) { c.key = 0x0db2d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $DB2D LDA $13
       case 0x0db2f: if (c.cycles >= end) { c.key = 0x0db2f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x1f); // $DB2F AND #$1F
-      case 0x0db31: if (c.cycles >= end) { c.key = 0x0db31; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0db9b; } // $DB31 BNE $DB9B
+      case 0x0db31: if (c.cycles >= end) { c.key = 0x0db31; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0db9b; } // $DB31 BNE $DB9B
       case 0x0db33: if (c.cycles >= end) { c.key = 0x0db33; return -1; } c.cycles += 5; ram[0xc2] = c.setNZ((ram[0xc2] + 1) & 0xff); // $DB33 INC $C2
       case 0x1db35: if (c.cycles >= end) { c.key = 0x1db35; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xc2]); // $DB35* LDX $C2
       case 0x0db37: if (c.cycles >= end) { c.key = 0x0db37; return -1; } c.cycles += 2; c.cmp(c.x, 0x03); // $DB37 CPX #$03
-      case 0x0db39: if (c.cycles >= end) { c.key = 0x0db39; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0db3d; continue; } // $DB39 BNE $DB3D
+      case 0x0db39: if (c.cycles >= end) { c.key = 0x0db39; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0db3d; continue; } // $DB39 BNE $DB3D
       case 0x0db3b: if (c.cycles >= end) { c.key = 0x0db3b; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $DB3B LDX #$00
       case 0x0db3d: if (c.cycles >= end) { c.key = 0x0db3d; return -1; } c.cycles += 3; ram[0xc2] = c.x; // $DB3D STX $C2
       case 0x1db3f: if (c.cycles >= end) { c.key = 0x1db3f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xbc + c.x) & 0xff)); // $DB3F* LDA $BC,X
       case 0x0db41: if (c.cycles >= end) { c.key = 0x0db41; return -1; } c.cycles += 4; c.cmp(c.a, c.read((0xbf + c.x) & 0xff)); // $DB41 CMP $BF,X
-      case 0x0db43: if (c.cycles >= end) { c.key = 0x0db43; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0db9b; } // $DB43 BEQ $DB9B
+      case 0x0db43: if (c.cycles >= end) { c.key = 0x0db43; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0db9b; } // $DB43 BEQ $DB9B
       case 0x0db45: if (c.cycles >= end) { c.key = 0x0db45; return -1; } c.cycles += 2; c.y = c.setNZ(0x00); // $DB45 LDY #$00
       case 0x0db47: if (c.cycles >= end) { c.key = 0x0db47; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DB47 STA $F5
       case 0x0db49: if (c.cycles >= end) { c.key = 0x0db49; return -1; } c.cycles += 2;  // $DB49 NOP
       case 0x0db4a: if (c.cycles >= end) { c.key = 0x0db4a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0068, c.y))); // $DB4A LDA $0068,Y
       case 0x0db4d: if (c.cycles >= end) { c.key = 0x0db4d; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $DB4D CMP #$FF
-      case 0x0db4f: if (c.cycles >= end) { c.key = 0x0db4f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0db5c; continue; } // $DB4F BEQ $DB5C
+      case 0x0db4f: if (c.cycles >= end) { c.key = 0x0db4f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0db5c; continue; } // $DB4F BEQ $DB5C
       case 0x0db51: if (c.cycles >= end) { c.key = 0x0db51; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); // $DB51 INY
       case 0x0db52: if (c.cycles >= end) { c.key = 0x0db52; return -1; } c.cycles += 2; c.cmp(c.y, 0x06); // $DB52 CPY #$06
-      case 0x0db54: if (c.cycles >= end) { c.key = 0x0db54; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0db4a; continue; } // $DB54 BNE $DB4A
+      case 0x0db54: if (c.cycles >= end) { c.key = 0x0db54; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0db4a; continue; } // $DB54 BNE $DB4A
       case 0x0db56: if (c.cycles >= end) { c.key = 0x0db56; return -1; } c.cycles += 3; return 0x0db9b; // $DB56 JMP $DB9B
       case 0x0db5c: if (c.cycles >= end) { c.key = 0x0db5c; return -1; } c.cycles += 6; c.rmw((0xbf + c.x) & 0xff, (v) => c.setNZ((v + 1) & 0xff)); return 0x1db5e; // $DB5C INC $BF,X
       default: return pc;
@@ -3431,21 +3432,21 @@ function b87(c, bus, ram, rom, end, pc) {
       case 0x0db9b: if (c.cycles >= end) { c.key = 0x0db9b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $DB9B RTS
       case 0x0dbbb: if (c.cycles >= end) { c.key = 0x0dbbb; return -1; } c.cycles += 2;  // $DBBB NOP
       case 0x0dbbc: if (c.cycles >= end) { c.key = 0x0dbbc; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $DBBC LDA $6F
-      case 0x0dbbe: if (c.cycles >= end) { c.key = 0x0dbbe; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0dbdc; continue; } // $DBBE BMI $DBDC
+      case 0x0dbbe: if (c.cycles >= end) { c.key = 0x0dbbe; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dbdc; continue; } // $DBBE BMI $DBDC
       case 0x0dbc0: if (c.cycles >= end) { c.key = 0x0dbc0; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $DBC0 LDX #$00
       case 0x0dbc2: if (c.cycles >= end) { c.key = 0x0dbc2; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DBC2 STA $F5
       case 0x1dbc4: if (c.cycles >= end) { c.key = 0x1dbc4; return -1; } c.cycles += 2;  // $DBC4* NOP
       case 0x0dbc5: if (c.cycles >= end) { c.key = 0x0dbc5; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $DBC5 LDA $68,X
       case 0x0dbc7: if (c.cycles >= end) { c.key = 0x0dbc7; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xd0); // $DBC7 AND #$D0
-      case 0x0dbc9: if (c.cycles >= end) { c.key = 0x0dbc9; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dbd4; continue; } // $DBC9 BNE $DBD4
+      case 0x0dbc9: if (c.cycles >= end) { c.key = 0x0dbc9; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dbd4; continue; } // $DBC9 BNE $DBD4
       case 0x0dbcb: if (c.cycles >= end) { c.key = 0x0dbcb; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $DBCB LDA $68,X
       case 0x0dbcd: if (c.cycles >= end) { c.key = 0x0dbcd; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x20); // $DBCD AND #$20
-      case 0x0dbcf: if (c.cycles >= end) { c.key = 0x0dbcf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dbe0; continue; } // $DBCF BNE $DBE0
+      case 0x0dbcf: if (c.cycles >= end) { c.key = 0x0dbcf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dbe0; continue; } // $DBCF BNE $DBE0
       case 0x0dbd1: if (c.cycles >= end) { c.key = 0x0dbd1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DBD1 STA $F5
       case 0x0dbd3: if (c.cycles >= end) { c.key = 0x0dbd3; return -1; } c.cycles += 2;  // $DBD3 NOP
       case 0x0dbd4: if (c.cycles >= end) { c.key = 0x0dbd4; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $DBD4 INX
       case 0x0dbd5: if (c.cycles >= end) { c.key = 0x0dbd5; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $DBD5 CPX #$06
-      case 0x0dbd7: if (c.cycles >= end) { c.key = 0x0dbd7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dbc5; continue; } // $DBD7 BNE $DBC5
+      case 0x0dbd7: if (c.cycles >= end) { c.key = 0x0dbd7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dbc5; continue; } // $DBD7 BNE $DBC5
       case 0x0dbd9: if (c.cycles >= end) { c.key = 0x0dbd9; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DBD9 STA $F5
       case 0x0dbdb: if (c.cycles >= end) { c.key = 0x0dbdb; return -1; } c.cycles += 2;  // $DBDB NOP
       case 0x0dbdc: if (c.cycles >= end) { c.key = 0x0dbdc; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $DBDC RTS
@@ -3473,29 +3474,29 @@ function b88(c, bus, ram, rom, end, pc) {
       case 0x0dbfa: if (c.cycles >= end) { c.key = 0x0dbfa; return -1; } c.cycles += 2; c.cmp(c.a, 0x18); // $DBFA CMP #$18
       case 0x0dbfc: if (c.cycles >= end) { c.key = 0x0dbfc; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 2; return 0x0dc5e; } // $DBFC BCC $DC5E
       case 0x0dbfe: if (c.cycles >= end) { c.key = 0x0dbfe; return -1; } c.cycles += 6; c.push(0xdc); c.push(0x00); return 0x0e0b6; // $DBFE JSR $E0B6
-      case 0x0dc01: if (c.cycles >= end) { c.key = 0x0dc01; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0dc45; } // $DC01 BNE $DC45
+      case 0x0dc01: if (c.cycles >= end) { c.key = 0x0dc01; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dc45; } // $DC01 BNE $DC45
       case 0x0dc03: if (c.cycles >= end) { c.key = 0x0dc03; return -1; } c.cycles += 2; c.cmp(c.a, 0x10); // $DC03 CMP #$10
-      case 0x0dc05: if (c.cycles >= end) { c.key = 0x0dc05; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc1a; continue; } // $DC05 BEQ $DC1A
+      case 0x0dc05: if (c.cycles >= end) { c.key = 0x0dc05; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc1a; continue; } // $DC05 BEQ $DC1A
       case 0x0dc07: if (c.cycles >= end) { c.key = 0x0dc07; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $DC07 CMP #$40
-      case 0x0dc09: if (c.cycles >= end) { c.key = 0x0dc09; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc1a; continue; } // $DC09 BEQ $DC1A
+      case 0x0dc09: if (c.cycles >= end) { c.key = 0x0dc09; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc1a; continue; } // $DC09 BEQ $DC1A
       case 0x0dc0b: if (c.cycles >= end) { c.key = 0x0dc0b; return -1; } c.cycles += 2; c.cmp(c.a, 0x70); // $DC0B CMP #$70
-      case 0x0dc0d: if (c.cycles >= end) { c.key = 0x0dc0d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc1a; continue; } // $DC0D BEQ $DC1A
+      case 0x0dc0d: if (c.cycles >= end) { c.key = 0x0dc0d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc1a; continue; } // $DC0D BEQ $DC1A
       case 0x0dc0f: if (c.cycles >= end) { c.key = 0x0dc0f; return -1; } c.cycles += 2; c.cmp(c.a, 0xa0); // $DC0F CMP #$A0
-      case 0x0dc11: if (c.cycles >= end) { c.key = 0x0dc11; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc1a; continue; } // $DC11 BEQ $DC1A
+      case 0x0dc11: if (c.cycles >= end) { c.key = 0x0dc11; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc1a; continue; } // $DC11 BEQ $DC1A
       case 0x0dc13: if (c.cycles >= end) { c.key = 0x0dc13; return -1; } c.cycles += 2; c.cmp(c.a, 0xd0); // $DC13 CMP #$D0
-      case 0x0dc15: if (c.cycles >= end) { c.key = 0x0dc15; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0dc45; } // $DC15 BNE $DC45
+      case 0x0dc15: if (c.cycles >= end) { c.key = 0x0dc15; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dc45; } // $DC15 BNE $DC45
       case 0x0dc17: if (c.cycles >= end) { c.key = 0x0dc17; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DC17 STA $F5
       case 0x0dc19: if (c.cycles >= end) { c.key = 0x0dc19; return -1; } c.cycles += 2;  // $DC19 NOP
       case 0x0dc1a: if (c.cycles >= end) { c.key = 0x0dc1a; return -1; } c.cycles += 6; c.push(0xdc); c.push(0x1c); return 0x0e09d; // $DC1A JSR $E09D
-      case 0x0dc1d: if (c.cycles >= end) { c.key = 0x0dc1d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dc2c; continue; } // $DC1D BNE $DC2C
+      case 0x0dc1d: if (c.cycles >= end) { c.key = 0x0dc1d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc2c; continue; } // $DC1D BNE $DC2C
       case 0x0dc1f: if (c.cycles >= end) { c.key = 0x0dc1f; return -1; } c.cycles += 6; c.push(0xdc); c.push(0x21); return 0x0e07b; // $DC1F JSR $E07B
-      case 0x0dc22: if (c.cycles >= end) { c.key = 0x0dc22; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc37; continue; } // $DC22 BEQ $DC37
+      case 0x0dc22: if (c.cycles >= end) { c.key = 0x0dc22; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc37; continue; } // $DC22 BEQ $DC37
       case 0x0dc24: if (c.cycles >= end) { c.key = 0x0dc24; return -1; } c.cycles += 6; c.push(0xdc); c.push(0x26); return 0x0e08c; // $DC24 JSR $E08C
-      case 0x0dc27: if (c.cycles >= end) { c.key = 0x0dc27; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc37; continue; } // $DC27 BEQ $DC37
+      case 0x0dc27: if (c.cycles >= end) { c.key = 0x0dc27; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc37; continue; } // $DC27 BEQ $DC37
       case 0x0dc29: if (c.cycles >= end) { c.key = 0x0dc29; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DC29 STA $F5
       case 0x0dc2b: if (c.cycles >= end) { c.key = 0x0dc2b; return -1; } c.cycles += 2;  // $DC2B NOP
       case 0x0dc2c: if (c.cycles >= end) { c.key = 0x0dc2c; return -1; } c.cycles += 6; c.push(0xdc); c.push(0x2e); return 0x0e059; // $DC2C JSR $E059
-      case 0x0dc2f: if (c.cycles >= end) { c.key = 0x0dc2f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dc37; continue; } // $DC2F BEQ $DC37
+      case 0x0dc2f: if (c.cycles >= end) { c.key = 0x0dc2f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc37; continue; } // $DC2F BEQ $DC37
       case 0x0dc31: if (c.cycles >= end) { c.key = 0x0dc31; return -1; } c.cycles += 3; return 0x0dc6b; // $DC31 JMP $DC6B
       case 0x0dc37: if (c.cycles >= end) { c.key = 0x0dc37; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $DC37 LDX $70
       case 0x0dc39: if (c.cycles >= end) { c.key = 0x0dc39; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); return 0x0dc3b; // $DC39 LDA $68,X
@@ -3511,7 +3512,7 @@ function b89(c, bus, ram, rom, end, pc) {
       case 0x0dc3f: if (c.cycles >= end) { c.key = 0x0dc3f; return -1; } c.cycles += 3; pc = 0x0dc6b; continue; // $DC3F JMP $DC6B
       case 0x0dc45: if (c.cycles >= end) { c.key = 0x0dc45; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $DC45 LDA $03
       case 0x0dc47: if (c.cycles >= end) { c.key = 0x0dc47; return -1; } c.cycles += 2; c.cmp(c.a, 0x80); // $DC47 CMP #$80
-      case 0x0dc49: if (c.cycles >= end) { c.key = 0x0dc49; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0dc5e; continue; } // $DC49 BCS $DC5E
+      case 0x0dc49: if (c.cycles >= end) { c.key = 0x0dc49; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc5e; continue; } // $DC49 BCS $DC5E
       case 0x0dc4b: if (c.cycles >= end) { c.key = 0x0dc4b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DC4B STA $F5
       case 0x0dc4d: if (c.cycles >= end) { c.key = 0x0dc4d; return -1; } c.cycles += 2;  // $DC4D NOP
       case 0x0dc4e: if (c.cycles >= end) { c.key = 0x0dc4e; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $DC4E LDX $70
@@ -3534,7 +3535,7 @@ function b89(c, bus, ram, rom, end, pc) {
       case 0x0dc77: if (c.cycles >= end) { c.key = 0x0dc77; return -1; } c.cycles += 2;  // $DC77 NOP
       case 0x0dc78: if (c.cycles >= end) { c.key = 0x0dc78; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $DC78 LDA $13
       case 0x0dc7a: if (c.cycles >= end) { c.key = 0x0dc7a; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x3f); // $DC7A AND #$3F
-      case 0x0dc7c: if (c.cycles >= end) { c.key = 0x0dc7c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0dce8; } // $DC7C BNE $DCE8
+      case 0x0dc7c: if (c.cycles >= end) { c.key = 0x0dc7c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dce8; } // $DC7C BNE $DCE8
       case 0x0dc7e: if (c.cycles >= end) { c.key = 0x0dc7e; return -1; } c.cycles += 5; ram[0x90] = c.setNZ((ram[0x90] + 1) & 0xff); // $DC7E INC $90
       case 0x0dc80: if (c.cycles >= end) { c.key = 0x0dc80; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x90]); // $DC80 LDA $90
       case 0x0dc82: if (c.cycles >= end) { c.key = 0x0dc82; return -1; } c.cycles += 2; c.cmp(c.a, 0x14); return 0x0dc84; // $DC82 CMP #$14
@@ -3545,7 +3546,7 @@ function b89(c, bus, ram, rom, end, pc) {
 function b90(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0dc84: if (c.cycles >= end) { c.key = 0x0dc84; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0dcb4; continue; } // $DC84 BCC $DCB4
+      case 0x0dc84: if (c.cycles >= end) { c.key = 0x0dc84; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dcb4; continue; } // $DC84 BCC $DCB4
       case 0x0dc86: if (c.cycles >= end) { c.key = 0x0dc86; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $DC86 LDA #$00
       case 0x0dc88: if (c.cycles >= end) { c.key = 0x0dc88; return -1; } c.cycles += 3; ram[0x90] = c.a; // $DC88 STA $90
       case 0x0dc8a: if (c.cycles >= end) { c.key = 0x0dc8a; return -1; } c.cycles += 2; c.x = c.setNZ(0x05); // $DC8A LDX #$05
@@ -3553,14 +3554,14 @@ function b90(c, bus, ram, rom, end, pc) {
       case 0x0dc8e: if (c.cycles >= end) { c.key = 0x0dc8e; return -1; } c.cycles += 2;  // $DC8E NOP
       case 0x0dc8f: if (c.cycles >= end) { c.key = 0x0dc8f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x91 + c.x) & 0xff)); // $DC8F LDA $91,X
       case 0x0dc91: if (c.cycles >= end) { c.key = 0x0dc91; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $DC91 AND #$10
-      case 0x0dc93: if (c.cycles >= end) { c.key = 0x0dc93; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dca6; continue; } // $DC93 BEQ $DCA6
+      case 0x0dc93: if (c.cycles >= end) { c.key = 0x0dc93; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dca6; continue; } // $DC93 BEQ $DCA6
       case 0x0dc95: if (c.cycles >= end) { c.key = 0x0dc95; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xa1 + c.x) & 0xff)); // $DC95 LDA $A1,X
       case 0x0dc97: if (c.cycles >= end) { c.key = 0x0dc97; return -1; } c.cycles += 2; c.cmp(c.a, 0x02); // $DC97 CMP #$02
-      case 0x0dc99: if (c.cycles >= end) { c.key = 0x0dc99; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dcae; continue; } // $DC99 BEQ $DCAE
+      case 0x0dc99: if (c.cycles >= end) { c.key = 0x0dc99; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dcae; continue; } // $DC99 BEQ $DCAE
       case 0x0dc9b: if (c.cycles >= end) { c.key = 0x0dc9b; return -1; } c.cycles += 6; c.rmw((0xa1 + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $DC9B DEC $A1,X
       case 0x0dc9d: if (c.cycles >= end) { c.key = 0x0dc9d; return -1; } c.cycles += 2; c.a = c.setNZ(0x03); // $DC9D LDA #$03
       case 0x0dc9f: if (c.cycles >= end) { c.key = 0x0dc9f; return -1; } c.cycles += 4; c.write((0x91 + c.x) & 0xff, c.a); // $DC9F STA $91,X
-      case 0x0dca1: if (c.cycles >= end) { c.key = 0x0dca1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dcae; continue; } // $DCA1 BNE $DCAE
+      case 0x0dca1: if (c.cycles >= end) { c.key = 0x0dca1; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dcae; continue; } // $DCA1 BNE $DCAE
       case 0x0dca3: if (c.cycles >= end) { c.key = 0x0dca3; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DCA3 STA $F5
       case 0x0dca5: if (c.cycles >= end) { c.key = 0x0dca5; return -1; } c.cycles += 2;  // $DCA5 NOP
       case 0x0dca6: if (c.cycles >= end) { c.key = 0x0dca6; return -1; } c.cycles += 2; c.p |= 0x01; // $DCA6 SEC
@@ -3569,7 +3570,7 @@ function b90(c, bus, ram, rom, end, pc) {
       case 0x0dcab: if (c.cycles >= end) { c.key = 0x0dcab; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DCAB STA $F5
       case 0x0dcad: if (c.cycles >= end) { c.key = 0x0dcad; return -1; } c.cycles += 2;  // $DCAD NOP
       case 0x0dcae: if (c.cycles >= end) { c.key = 0x0dcae; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $DCAE DEX
-      case 0x0dcaf: if (c.cycles >= end) { c.key = 0x0dcaf; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0dc8f; continue; } // $DCAF BPL $DC8F
+      case 0x0dcaf: if (c.cycles >= end) { c.key = 0x0dcaf; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dc8f; continue; } // $DCAF BPL $DC8F
       case 0x0dcb1: if (c.cycles >= end) { c.key = 0x0dcb1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DCB1 STA $F5
       case 0x0dcb3: if (c.cycles >= end) { c.key = 0x0dcb3; return -1; } c.cycles += 2;  // $DCB3 NOP
       case 0x0dcb4: if (c.cycles >= end) { c.key = 0x0dcb4; return -1; } c.cycles += 2; c.y = c.setNZ(0x05); // $DCB4 LDY #$05
@@ -3584,9 +3585,9 @@ function b90(c, bus, ram, rom, end, pc) {
 function b91(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0dcbe: if (c.cycles >= end) { c.key = 0x0dcbe; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0dcc9; continue; } // $DCBE BMI $DCC9
+      case 0x0dcbe: if (c.cycles >= end) { c.key = 0x0dcbe; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dcc9; continue; } // $DCBE BMI $DCC9
       case 0x0dcc0: if (c.cycles >= end) { c.key = 0x0dcc0; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x73 + c.x) & 0xff)); // $DCC0 LDA $73,X
-      case 0x0dcc2: if (c.cycles >= end) { c.key = 0x0dcc2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dcd5; continue; } // $DCC2 BEQ $DCD5
+      case 0x0dcc2: if (c.cycles >= end) { c.key = 0x0dcc2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dcd5; continue; } // $DCC2 BEQ $DCD5
       case 0x0dcc4: if (c.cycles >= end) { c.key = 0x0dcc4; return -1; } c.cycles += 6; c.rmw((0x73 + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $DCC4 DEC $73,X
       case 0x0dcc6: if (c.cycles >= end) { c.key = 0x0dcc6; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DCC6 STA $F5
       case 0x0dcc8: if (c.cycles >= end) { c.key = 0x0dcc8; return -1; } c.cycles += 2;  // $DCC8 NOP
@@ -3595,8 +3596,8 @@ function b91(c, bus, ram, rom, end, pc) {
       case 0x0dccb: if (c.cycles >= end) { c.key = 0x0dccb; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $DCCB DEX
       case 0x0dccc: if (c.cycles >= end) { c.key = 0x0dccc; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $DCCC DEX
       case 0x0dccd: if (c.cycles >= end) { c.key = 0x0dccd; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $DCCD DEX
-      case 0x0dcce: if (c.cycles >= end) { c.key = 0x0dcce; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0dcbb; } // $DCCE BPL $DCBB
-      case 0x0dcd0: if (c.cycles >= end) { c.key = 0x0dcd0; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0dce8; continue; } // $DCD0 BMI $DCE8
+      case 0x0dcce: if (c.cycles >= end) { c.key = 0x0dcce; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dcbb; } // $DCCE BPL $DCBB
+      case 0x0dcd0: if (c.cycles >= end) { c.key = 0x0dcd0; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dce8; continue; } // $DCD0 BMI $DCE8
       case 0x0dcd2: if (c.cycles >= end) { c.key = 0x0dcd2; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DCD2 STA $F5
       case 0x0dcd4: if (c.cycles >= end) { c.key = 0x0dcd4; return -1; } c.cycles += 2;  // $DCD4 NOP
       case 0x0dcd5: if (c.cycles >= end) { c.key = 0x0dcd5; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $DCD5 TXA
@@ -3646,7 +3647,7 @@ function b92(c, bus, ram, rom, end, pc) {
       case 0x1dd1c: if (c.cycles >= end) { c.key = 0x1dd1c; return -1; } c.cycles += 6; c.rmw((0x75 + c.x) & 0xff, (v) => c.setNZ((v + 1) & 0xff)); // $DD1C* INC $75,X
       case 0x1dd1e: if (c.cycles >= end) { c.key = 0x1dd1e; return -1; } c.cycles += 4; c.y = c.setNZ(c.read((0x75 + c.x) & 0xff)); // $DD1E* LDY $75,X
       case 0x0dd20: if (c.cycles >= end) { c.key = 0x0dd20; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0x03, true))); // $DD20 LDA ($03),Y
-      case 0x0dd22: if (c.cycles >= end) { c.key = 0x0dd22; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0dd2b; continue; } // $DD22 BPL $DD2B
+      case 0x0dd22: if (c.cycles >= end) { c.key = 0x0dd22; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dd2b; continue; } // $DD22 BPL $DD2B
       case 0x0dd24: if (c.cycles >= end) { c.key = 0x0dd24; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $DD24 LDA #$00
       case 0x0dd26: if (c.cycles >= end) { c.key = 0x0dd26; return -1; } c.cycles += 4; c.write((0x75 + c.x) & 0xff, c.a); // $DD26 STA $75,X
       case 0x0dd28: if (c.cycles >= end) { c.key = 0x0dd28; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DD28 STA $F5
@@ -3654,7 +3655,7 @@ function b92(c, bus, ram, rom, end, pc) {
       case 0x0dd2b: if (c.cycles >= end) { c.key = 0x0dd2b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $DD2B RTS
       case 0x1dd65: if (c.cycles >= end) { c.key = 0x1dd65; return -1; } c.cycles += 2;  // $DD65* NOP
       case 0x0dd66: if (c.cycles >= end) { c.key = 0x0dd66; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $DD66 LDA $6F
-      case 0x0dd68: if (c.cycles >= end) { c.key = 0x0dd68; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0dd83; } return 0x0dd6a; // $DD68 BMI $DD83
+      case 0x0dd68: if (c.cycles >= end) { c.key = 0x0dd68; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dd83; } return 0x0dd6a; // $DD68 BMI $DD83
       default: return pc;
     }
   }
@@ -3669,11 +3670,11 @@ function b93(c, bus, ram, rom, end, pc) {
       case 0x0dd71: if (c.cycles >= end) { c.key = 0x0dd71; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $DD71 LDX $70
       case 0x0dd73: if (c.cycles >= end) { c.key = 0x0dd73; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $DD73 LDA $68,X
       case 0x0dd75: if (c.cycles >= end) { c.key = 0x0dd75; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $DD75 AND #$F0
-      case 0x0dd77: if (c.cycles >= end) { c.key = 0x0dd77; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dd87; continue; } // $DD77 BEQ $DD87
+      case 0x0dd77: if (c.cycles >= end) { c.key = 0x0dd77; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dd87; continue; } // $DD77 BEQ $DD87
       case 0x0dd79: if (c.cycles >= end) { c.key = 0x0dd79; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DD79 STA $F5
       case 0x0dd7b: if (c.cycles >= end) { c.key = 0x0dd7b; return -1; } c.cycles += 2;  // $DD7B NOP
       case 0x0dd7c: if (c.cycles >= end) { c.key = 0x0dd7c; return -1; } c.cycles += 5; ram[0x70] = c.setNZ((ram[0x70] - 1) & 0xff); // $DD7C DEC $70
-      case 0x1dd7e: if (c.cycles >= end) { c.key = 0x1dd7e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0dd71; continue; } // $DD7E* BPL $DD71
+      case 0x1dd7e: if (c.cycles >= end) { c.key = 0x1dd7e; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dd71; continue; } // $DD7E* BPL $DD71
       case 0x0dd80: if (c.cycles >= end) { c.key = 0x0dd80; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DD80 STA $F5
       case 0x0dd82: if (c.cycles >= end) { c.key = 0x0dd82; return -1; } c.cycles += 2;  // $DD82 NOP
       case 0x0dd83: if (c.cycles >= end) { c.key = 0x0dd83; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $DD83 RTS
@@ -3686,13 +3687,13 @@ function b93(c, bus, ram, rom, end, pc) {
       case 0x0dd90: if (c.cycles >= end) { c.key = 0x0dd90; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1803, c.y))); // $DD90 LDA $1803,Y
       case 0x0dd93: if (c.cycles >= end) { c.key = 0x0dd93; return -1; } c.cycles += 3; ram[0x04] = c.a; // $DD93 STA $04
       case 0x1dd95: if (c.cycles >= end) { c.key = 0x1dd95; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x8a + c.x) & 0xff)); // $DD95* LDA $8A,X
-      case 0x0dd97: if (c.cycles >= end) { c.key = 0x0dd97; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dda4; continue; } // $DD97 BEQ $DDA4
+      case 0x0dd97: if (c.cycles >= end) { c.key = 0x0dd97; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dda4; continue; } // $DD97 BEQ $DDA4
       case 0x0dd99: if (c.cycles >= end) { c.key = 0x0dd99; return -1; } c.cycles += 6; c.rmw((0x8a + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $DD99 DEC $8A,X
       case 0x0dd9b: if (c.cycles >= end) { c.key = 0x0dd9b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DD9B STA $F5
       case 0x1dd9d: if (c.cycles >= end) { c.key = 0x1dd9d; return -1; } c.cycles += 2;  // $DD9D* NOP
       case 0x0dd9e: if (c.cycles >= end) { c.key = 0x0dd9e; return -1; } c.cycles += 3; return 0x0debb; // $DD9E JMP $DEBB
       case 0x0dda4: if (c.cycles >= end) { c.key = 0x0dda4; return -1; } c.cycles += 6; c.push(0xdd); c.push(0xa6); return 0x0e09d; // $DDA4 JSR $E09D
-      case 0x0dda7: if (c.cycles >= end) { c.key = 0x0dda7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0dd9e; continue; } // $DDA7 BNE $DD9E
+      case 0x0dda7: if (c.cycles >= end) { c.key = 0x0dda7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dd9e; continue; } // $DDA7 BNE $DD9E
       case 0x0dda9: if (c.cycles >= end) { c.key = 0x0dda9; return -1; } c.cycles += 6; c.push(0xdd); c.push(0xab); return 0x0e0b6; // $DDA9 JSR $E0B6
       default: return pc;
     }
@@ -3701,7 +3702,7 @@ function b93(c, bus, ram, rom, end, pc) {
 function b94(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0ddac: if (c.cycles >= end) { c.key = 0x0ddac; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0dd9e; } // $DDAC BNE $DD9E
+      case 0x0ddac: if (c.cycles >= end) { c.key = 0x0ddac; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dd9e; } // $DDAC BNE $DD9E
       case 0x0ddae: if (c.cycles >= end) { c.key = 0x0ddae; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181e)); // $DDAE LDA $181E
       case 0x0ddb1: if (c.cycles >= end) { c.key = 0x0ddb1; return -1; } c.cycles += 3; ram[0x17] = c.a; // $DDB1 STA $17
       case 0x0ddb3: if (c.cycles >= end) { c.key = 0x0ddb3; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181f)); // $DDB3 LDA $181F
@@ -3711,15 +3712,15 @@ function b94(c, bus, ram, rom, end, pc) {
       case 0x0ddbb: if (c.cycles >= end) { c.key = 0x0ddbb; return -1; } c.cycles += 2; c.a = c.asl(c.a); // $DDBB ASL A
       case 0x0ddbc: if (c.cycles >= end) { c.key = 0x0ddbc; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $DDBC TAX
       case 0x0ddbd: if (c.cycles >= end) { c.key = 0x0ddbd; return -1; } c.cycles += 4; c.y = c.setNZ(c.read((0x72 + c.x) & 0xff)); // $DDBD LDY $72,X
-      case 0x0ddbf: if (c.cycles >= end) { c.key = 0x0ddbf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ddd2; continue; } // $DDBF BEQ $DDD2
+      case 0x0ddbf: if (c.cycles >= end) { c.key = 0x0ddbf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ddd2; continue; } // $DDBF BEQ $DDD2
       case 0x0ddc1: if (c.cycles >= end) { c.key = 0x0ddc1; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $DDC1 DEY
-      case 0x0ddc2: if (c.cycles >= end) { c.key = 0x0ddc2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ddd8; continue; } // $DDC2 BEQ $DDD8
+      case 0x0ddc2: if (c.cycles >= end) { c.key = 0x0ddc2; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ddd8; continue; } // $DDC2 BEQ $DDD8
       case 0x0ddc4: if (c.cycles >= end) { c.key = 0x0ddc4; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $DDC4 DEY
-      case 0x0ddc5: if (c.cycles >= end) { c.key = 0x0ddc5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ddde; continue; } // $DDC5 BEQ $DDDE
+      case 0x0ddc5: if (c.cycles >= end) { c.key = 0x0ddc5; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ddde; continue; } // $DDC5 BEQ $DDDE
       case 0x0ddc7: if (c.cycles >= end) { c.key = 0x0ddc7; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $DDC7 DEY
-      case 0x0ddc8: if (c.cycles >= end) { c.key = 0x0ddc8; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dde4; continue; } // $DDC8 BEQ $DDE4
+      case 0x0ddc8: if (c.cycles >= end) { c.key = 0x0ddc8; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dde4; continue; } // $DDC8 BEQ $DDE4
       case 0x0ddca: if (c.cycles >= end) { c.key = 0x0ddca; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $DDCA DEY
-      case 0x0ddcb: if (c.cycles >= end) { c.key = 0x0ddcb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0dded; continue; } // $DDCB BEQ $DDED
+      case 0x0ddcb: if (c.cycles >= end) { c.key = 0x0ddcb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0dded; continue; } // $DDCB BEQ $DDED
       case 0x0ddcd: if (c.cycles >= end) { c.key = 0x0ddcd; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 2; return 0x0de13; } // $DDCD BNE $DE13
       case 0x0ddcf: if (c.cycles >= end) { c.key = 0x0ddcf; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DDCF STA $F5
       case 0x0ddd1: if (c.cycles >= end) { c.key = 0x0ddd1; return -1; } c.cycles += 2;  // $DDD1 NOP
@@ -3749,11 +3750,11 @@ function b95(c, bus, ram, rom, end, pc) {
       case 0x0ddfc: if (c.cycles >= end) { c.key = 0x0ddfc; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $DDFC CMP #$40
       case 0x0ddfe: if (c.cycles >= end) { c.key = 0x0ddfe; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DDFE STA $F5
       case 0x0de00: if (c.cycles >= end) { c.key = 0x0de00; return -1; } c.cycles += 2;  // $DE00 NOP
-      case 0x0de01: if (c.cycles >= end) { c.key = 0x0de01; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0de34; } // $DE01 BEQ $DE34
+      case 0x0de01: if (c.cycles >= end) { c.key = 0x0de01; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de34; } // $DE01 BEQ $DE34
       case 0x0de03: if (c.cycles >= end) { c.key = 0x0de03; return -1; } c.cycles += 2; c.cmp(c.a, 0x60); // $DE03 CMP #$60
       case 0x0de05: if (c.cycles >= end) { c.key = 0x0de05; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DE05 STA $F5
       case 0x0de07: if (c.cycles >= end) { c.key = 0x0de07; return -1; } c.cycles += 2;  // $DE07 NOP
-      case 0x0de08: if (c.cycles >= end) { c.key = 0x0de08; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0de49; } // $DE08 BEQ $DE49
+      case 0x0de08: if (c.cycles >= end) { c.key = 0x0de08; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de49; } // $DE08 BEQ $DE49
       case 0x0de0a: if (c.cycles >= end) { c.key = 0x0de0a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DE0A STA $F5
       case 0x0de0c: if (c.cycles >= end) { c.key = 0x0de0c; return -1; } c.cycles += 2;  // $DE0C NOP
       case 0x0de0d: if (c.cycles >= end) { c.key = 0x0de0d; return -1; } c.cycles += 3; return 0x0de5e; // $DE0D JMP $DE5E
@@ -3767,9 +3768,9 @@ function b95(c, bus, ram, rom, end, pc) {
       case 0x0de25: if (c.cycles >= end) { c.key = 0x0de25; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $DE25 LDA $04
       case 0x0de27: if (c.cycles >= end) { c.key = 0x0de27; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DE27 AND #$F8
       case 0x0de29: if (c.cycles >= end) { c.key = 0x0de29; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x05]); // $DE29 CMP $05
-      case 0x0de2b: if (c.cycles >= end) { c.key = 0x0de2b; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0de73; } // $DE2B BCS $DE73
-      case 0x0de2d: if (c.cycles >= end) { c.key = 0x0de2d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0de79; } // $DE2D BEQ $DE79
-      case 0x0de2f: if (c.cycles >= end) { c.key = 0x0de2f; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0de7f; } // $DE2F BCC $DE7F
+      case 0x0de2b: if (c.cycles >= end) { c.key = 0x0de2b; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de73; } // $DE2B BCS $DE73
+      case 0x0de2d: if (c.cycles >= end) { c.key = 0x0de2d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de79; } // $DE2D BEQ $DE79
+      case 0x0de2f: if (c.cycles >= end) { c.key = 0x0de2f; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de7f; } // $DE2F BCC $DE7F
       case 0x0de31: if (c.cycles >= end) { c.key = 0x0de31; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DE31 STA $F5
       case 0x0de33: if (c.cycles >= end) { c.key = 0x0de33; return -1; } c.cycles += 2;  return 0x0de34; // $DE33 NOP
       default: return pc;
@@ -3785,9 +3786,9 @@ function b96(c, bus, ram, rom, end, pc) {
       case 0x0de3a: if (c.cycles >= end) { c.key = 0x0de3a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $DE3A LDA $04
       case 0x0de3c: if (c.cycles >= end) { c.key = 0x0de3c; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DE3C AND #$F8
       case 0x0de3e: if (c.cycles >= end) { c.key = 0x0de3e; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x05]); // $DE3E CMP $05
-      case 0x0de40: if (c.cycles >= end) { c.key = 0x0de40; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0de85; } // $DE40 BCS $DE85
-      case 0x0de42: if (c.cycles >= end) { c.key = 0x0de42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0de8b; } // $DE42 BEQ $DE8B
-      case 0x0de44: if (c.cycles >= end) { c.key = 0x0de44; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0de91; } // $DE44 BCC $DE91
+      case 0x0de40: if (c.cycles >= end) { c.key = 0x0de40; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de85; } // $DE40 BCS $DE85
+      case 0x0de42: if (c.cycles >= end) { c.key = 0x0de42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de8b; } // $DE42 BEQ $DE8B
+      case 0x0de44: if (c.cycles >= end) { c.key = 0x0de44; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de91; } // $DE44 BCC $DE91
       case 0x0de46: if (c.cycles >= end) { c.key = 0x0de46; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DE46 STA $F5
       case 0x0de48: if (c.cycles >= end) { c.key = 0x0de48; return -1; } c.cycles += 2;  // $DE48 NOP
       case 0x0de49: if (c.cycles >= end) { c.key = 0x0de49; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x17]); // $DE49 LDA $17
@@ -3796,9 +3797,9 @@ function b96(c, bus, ram, rom, end, pc) {
       case 0x0de4f: if (c.cycles >= end) { c.key = 0x0de4f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $DE4F LDA $03
       case 0x0de51: if (c.cycles >= end) { c.key = 0x0de51; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DE51 AND #$F8
       case 0x0de53: if (c.cycles >= end) { c.key = 0x0de53; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x05]); // $DE53 CMP $05
-      case 0x0de55: if (c.cycles >= end) { c.key = 0x0de55; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0dea3; } // $DE55 BCC $DEA3
-      case 0x0de57: if (c.cycles >= end) { c.key = 0x0de57; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0de9d; } // $DE57 BEQ $DE9D
-      case 0x0de59: if (c.cycles >= end) { c.key = 0x0de59; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0de97; } // $DE59 BCS $DE97
+      case 0x0de55: if (c.cycles >= end) { c.key = 0x0de55; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dea3; } // $DE55 BCC $DEA3
+      case 0x0de57: if (c.cycles >= end) { c.key = 0x0de57; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de9d; } // $DE57 BEQ $DE9D
+      case 0x0de59: if (c.cycles >= end) { c.key = 0x0de59; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0de97; } // $DE59 BCS $DE97
       case 0x0de5b: if (c.cycles >= end) { c.key = 0x0de5b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $DE5B STA $F5
       case 0x0de5d: if (c.cycles >= end) { c.key = 0x0de5d; return -1; } c.cycles += 2;  // $DE5D NOP
       case 0x0de5e: if (c.cycles >= end) { c.key = 0x0de5e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x17]); // $DE5E LDA $17
@@ -3807,9 +3808,9 @@ function b96(c, bus, ram, rom, end, pc) {
       case 0x0de64: if (c.cycles >= end) { c.key = 0x0de64; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x03]); // $DE64 LDA $03
       case 0x0de66: if (c.cycles >= end) { c.key = 0x0de66; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf8); // $DE66 AND #$F8
       case 0x0de68: if (c.cycles >= end) { c.key = 0x0de68; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x05]); // $DE68 CMP $05
-      case 0x0de6a: if (c.cycles >= end) { c.key = 0x0de6a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0deb5; } // $DE6A BCC $DEB5
-      case 0x0de6c: if (c.cycles >= end) { c.key = 0x0de6c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0deaf; } // $DE6C BEQ $DEAF
-      case 0x0de6e: if (c.cycles >= end) { c.key = 0x0de6e; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0dea9; } // $DE6E BCS $DEA9
+      case 0x0de6a: if (c.cycles >= end) { c.key = 0x0de6a; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0deb5; } // $DE6A BCC $DEB5
+      case 0x0de6c: if (c.cycles >= end) { c.key = 0x0de6c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0deaf; } // $DE6C BEQ $DEAF
+      case 0x0de6e: if (c.cycles >= end) { c.key = 0x0de6e; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0dea9; } // $DE6E BCS $DEA9
       case 0x0de70: if (c.cycles >= end) { c.key = 0x0de70; return -1; } c.cycles += 3; ram[0xf5] = c.a; return 0x0de72; // $DE70 STA $F5
       default: return pc;
     }
@@ -3833,7 +3834,7 @@ function b97(c, bus, ram, rom, end, pc) {
       case 0x0deb5: if (c.cycles >= end) { c.key = 0x0deb5; return -1; } c.cycles += 3; return 0x0e00b; // $DEB5 JMP $E00B
       case 0x0debb: if (c.cycles >= end) { c.key = 0x0debb; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $DEBB LDX $70
       case 0x0debd: if (c.cycles >= end) { c.key = 0x0debd; return -1; } c.cycles += 6; c.push(0xde); c.push(0xbf); return 0x0d3c3; // $DEBD JSR $D3C3
-      case 0x0dec0: if (c.cycles >= end) { c.key = 0x0dec0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0decd; continue; } // $DEC0 BNE $DECD
+      case 0x0dec0: if (c.cycles >= end) { c.key = 0x0dec0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0decd; continue; } // $DEC0 BNE $DECD
       case 0x0dec2: if (c.cycles >= end) { c.key = 0x0dec2; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $DEC2 LDX $70
       case 0x0dec4: if (c.cycles >= end) { c.key = 0x0dec4; return -1; } c.cycles += 6; c.push(0xde); c.push(0xc6); return 0x0d269; // $DEC4 JSR $D269
       case 0x0dec7: if (c.cycles >= end) { c.key = 0x0dec7; return -1; } c.cycles += 3; return 0x0dd7c; // $DEC7 JMP $DD7C
@@ -3844,9 +3845,9 @@ function b97(c, bus, ram, rom, end, pc) {
       case 0x0ded5: if (c.cycles >= end) { c.key = 0x0ded5; return -1; } c.cycles += 2; c.cmp(c.a, 0x20); // $DED5 CMP #$20
       case 0x0ded7: if (c.cycles >= end) { c.key = 0x0ded7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0df01; } // $DED7 BEQ $DF01
       case 0x0ded9: if (c.cycles >= end) { c.key = 0x0ded9; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $DED9 CMP #$40
-      case 0x0dedb: if (c.cycles >= end) { c.key = 0x0dedb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0de8b; continue; } // $DEDB BEQ $DE8B
+      case 0x0dedb: if (c.cycles >= end) { c.key = 0x0dedb; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0de8b; continue; } // $DEDB BEQ $DE8B
       case 0x0dedd: if (c.cycles >= end) { c.key = 0x0dedd; return -1; } c.cycles += 2; c.cmp(c.a, 0x60); // $DEDD CMP #$60
-      case 0x0dedf: if (c.cycles >= end) { c.key = 0x0dedf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0de9d; continue; } // $DEDF BEQ $DE9D
+      case 0x0dedf: if (c.cycles >= end) { c.key = 0x0dedf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0de9d; continue; } // $DEDF BEQ $DE9D
       case 0x0dee1: if (c.cycles >= end) { c.key = 0x0dee1; return -1; } c.cycles += 3; return 0x0dff1; // $DEE1 JMP $DFF1
       case 0x0dee7: if (c.cycles >= end) { c.key = 0x0dee7; return -1; } c.cycles += 6; c.push(0xde); c.push(0xe9); return 0x0e059; // $DEE7 JSR $E059
       case 0x0deea: if (c.cycles >= end) { c.key = 0x0deea; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0df4f; } return 0x0deec; // $DEEA BEQ $DF4F
@@ -3865,29 +3866,29 @@ function b98(c, bus, ram, rom, end, pc) {
       case 0x0def9: if (c.cycles >= end) { c.key = 0x0def9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0df4f; } // $DEF9 BEQ $DF4F
       case 0x0defb: if (c.cycles >= end) { c.key = 0x0defb; return -1; } c.cycles += 3; return 0x0e03d; // $DEFB JMP $E03D
       case 0x0df01: if (c.cycles >= end) { c.key = 0x0df01; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x03); return 0x0e07b; // $DF01 JSR $E07B
-      case 0x0df04: if (c.cycles >= end) { c.key = 0x0df04; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF04 BEQ $DF4F
+      case 0x0df04: if (c.cycles >= end) { c.key = 0x0df04; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF04 BEQ $DF4F
       case 0x0df06: if (c.cycles >= end) { c.key = 0x0df06; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x08); return 0x0e059; // $DF06 JSR $E059
-      case 0x0df09: if (c.cycles >= end) { c.key = 0x0df09; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF09 BEQ $DF4F
+      case 0x0df09: if (c.cycles >= end) { c.key = 0x0df09; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF09 BEQ $DF4F
       case 0x0df0b: if (c.cycles >= end) { c.key = 0x0df0b; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x0d); return 0x0e06a; // $DF0B JSR $E06A
-      case 0x0df0e: if (c.cycles >= end) { c.key = 0x0df0e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF0E BEQ $DF4F
+      case 0x0df0e: if (c.cycles >= end) { c.key = 0x0df0e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF0E BEQ $DF4F
       case 0x0df10: if (c.cycles >= end) { c.key = 0x0df10; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x12); return 0x0e08c; // $DF10 JSR $E08C
-      case 0x0df13: if (c.cycles >= end) { c.key = 0x0df13; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF13 BEQ $DF4F
+      case 0x0df13: if (c.cycles >= end) { c.key = 0x0df13; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF13 BEQ $DF4F
       case 0x0df15: if (c.cycles >= end) { c.key = 0x0df15; return -1; } c.cycles += 3; return 0x0e03d; // $DF15 JMP $E03D
       case 0x0df1b: if (c.cycles >= end) { c.key = 0x0df1b; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x1d); return 0x0e06a; // $DF1B JSR $E06A
-      case 0x0df1e: if (c.cycles >= end) { c.key = 0x0df1e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF1E BEQ $DF4F
+      case 0x0df1e: if (c.cycles >= end) { c.key = 0x0df1e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF1E BEQ $DF4F
       case 0x0df20: if (c.cycles >= end) { c.key = 0x0df20; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x22); return 0x0e07b; // $DF20 JSR $E07B
-      case 0x0df23: if (c.cycles >= end) { c.key = 0x0df23; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF23 BEQ $DF4F
+      case 0x0df23: if (c.cycles >= end) { c.key = 0x0df23; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF23 BEQ $DF4F
       case 0x0df25: if (c.cycles >= end) { c.key = 0x0df25; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x27); return 0x0e08c; // $DF25 JSR $E08C
-      case 0x0df28: if (c.cycles >= end) { c.key = 0x0df28; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF28 BEQ $DF4F
+      case 0x0df28: if (c.cycles >= end) { c.key = 0x0df28; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF28 BEQ $DF4F
       case 0x0df2a: if (c.cycles >= end) { c.key = 0x0df2a; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x2c); return 0x0e059; // $DF2A JSR $E059
-      case 0x0df2d: if (c.cycles >= end) { c.key = 0x0df2d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF2D BEQ $DF4F
+      case 0x0df2d: if (c.cycles >= end) { c.key = 0x0df2d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF2D BEQ $DF4F
       case 0x0df2f: if (c.cycles >= end) { c.key = 0x0df2f; return -1; } c.cycles += 3; return 0x0e03d; // $DF2F JMP $E03D
       case 0x0df35: if (c.cycles >= end) { c.key = 0x0df35; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x37); return 0x0e059; // $DF35 JSR $E059
-      case 0x0df38: if (c.cycles >= end) { c.key = 0x0df38; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF38 BEQ $DF4F
+      case 0x0df38: if (c.cycles >= end) { c.key = 0x0df38; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF38 BEQ $DF4F
       case 0x0df3a: if (c.cycles >= end) { c.key = 0x0df3a; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x3c); return 0x0e08c; // $DF3A JSR $E08C
-      case 0x0df3d: if (c.cycles >= end) { c.key = 0x0df3d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF3D BEQ $DF4F
+      case 0x0df3d: if (c.cycles >= end) { c.key = 0x0df3d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF3D BEQ $DF4F
       case 0x0df3f: if (c.cycles >= end) { c.key = 0x0df3f; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x41); return 0x0e06a; // $DF3F JSR $E06A
-      case 0x0df42: if (c.cycles >= end) { c.key = 0x0df42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0df4f; } // $DF42 BEQ $DF4F
+      case 0x0df42: if (c.cycles >= end) { c.key = 0x0df42; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0df4f; } // $DF42 BEQ $DF4F
       case 0x0df44: if (c.cycles >= end) { c.key = 0x0df44; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x46); return 0x0e07b; // $DF44 JSR $E07B
       default: return pc;
     }
@@ -3896,35 +3897,35 @@ function b98(c, bus, ram, rom, end, pc) {
 function b99(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0df47: if (c.cycles >= end) { c.key = 0x0df47; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF47 BEQ $DF4F
+      case 0x0df47: if (c.cycles >= end) { c.key = 0x0df47; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF47 BEQ $DF4F
       case 0x0df49: if (c.cycles >= end) { c.key = 0x0df49; return -1; } c.cycles += 3; return 0x0e03d; // $DF49 JMP $E03D
       case 0x0df4f: if (c.cycles >= end) { c.key = 0x0df4f; return -1; } c.cycles += 3; return 0x0e025; // $DF4F JMP $E025
       case 0x0df55: if (c.cycles >= end) { c.key = 0x0df55; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x57); return 0x0e08c; // $DF55 JSR $E08C
-      case 0x0df58: if (c.cycles >= end) { c.key = 0x0df58; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF58 BEQ $DF4F
+      case 0x0df58: if (c.cycles >= end) { c.key = 0x0df58; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF58 BEQ $DF4F
       case 0x0df5a: if (c.cycles >= end) { c.key = 0x0df5a; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x5c); return 0x0e06a; // $DF5A JSR $E06A
-      case 0x0df5d: if (c.cycles >= end) { c.key = 0x0df5d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF5D BEQ $DF4F
+      case 0x0df5d: if (c.cycles >= end) { c.key = 0x0df5d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF5D BEQ $DF4F
       case 0x0df5f: if (c.cycles >= end) { c.key = 0x0df5f; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x61); return 0x0e059; // $DF5F JSR $E059
-      case 0x0df62: if (c.cycles >= end) { c.key = 0x0df62; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF62 BEQ $DF4F
+      case 0x0df62: if (c.cycles >= end) { c.key = 0x0df62; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF62 BEQ $DF4F
       case 0x0df64: if (c.cycles >= end) { c.key = 0x0df64; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x66); return 0x0e07b; // $DF64 JSR $E07B
-      case 0x0df67: if (c.cycles >= end) { c.key = 0x0df67; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF67 BEQ $DF4F
+      case 0x0df67: if (c.cycles >= end) { c.key = 0x0df67; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF67 BEQ $DF4F
       case 0x0df69: if (c.cycles >= end) { c.key = 0x0df69; return -1; } c.cycles += 3; return 0x0e03d; // $DF69 JMP $E03D
       case 0x0df6f: if (c.cycles >= end) { c.key = 0x0df6f; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x71); return 0x0e06a; // $DF6F JSR $E06A
-      case 0x0df72: if (c.cycles >= end) { c.key = 0x0df72; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF72 BEQ $DF4F
+      case 0x0df72: if (c.cycles >= end) { c.key = 0x0df72; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF72 BEQ $DF4F
       case 0x0df74: if (c.cycles >= end) { c.key = 0x0df74; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x76); return 0x0e08c; // $DF74 JSR $E08C
-      case 0x0df77: if (c.cycles >= end) { c.key = 0x0df77; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF77 BEQ $DF4F
+      case 0x0df77: if (c.cycles >= end) { c.key = 0x0df77; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF77 BEQ $DF4F
       case 0x0df79: if (c.cycles >= end) { c.key = 0x0df79; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x7b); return 0x0e059; // $DF79 JSR $E059
-      case 0x0df7c: if (c.cycles >= end) { c.key = 0x0df7c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF7C BEQ $DF4F
+      case 0x0df7c: if (c.cycles >= end) { c.key = 0x0df7c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF7C BEQ $DF4F
       case 0x0df7e: if (c.cycles >= end) { c.key = 0x0df7e; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x80); return 0x0e07b; // $DF7E JSR $E07B
-      case 0x0df81: if (c.cycles >= end) { c.key = 0x0df81; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF81 BEQ $DF4F
+      case 0x0df81: if (c.cycles >= end) { c.key = 0x0df81; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF81 BEQ $DF4F
       case 0x0df83: if (c.cycles >= end) { c.key = 0x0df83; return -1; } c.cycles += 3; return 0x0e03d; // $DF83 JMP $E03D
       case 0x0df89: if (c.cycles >= end) { c.key = 0x0df89; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x8b); return 0x0e07b; // $DF89 JSR $E07B
-      case 0x0df8c: if (c.cycles >= end) { c.key = 0x0df8c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF8C BEQ $DF4F
+      case 0x0df8c: if (c.cycles >= end) { c.key = 0x0df8c; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF8C BEQ $DF4F
       case 0x0df8e: if (c.cycles >= end) { c.key = 0x0df8e; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x90); return 0x0e059; // $DF8E JSR $E059
-      case 0x0df91: if (c.cycles >= end) { c.key = 0x0df91; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF91 BEQ $DF4F
+      case 0x0df91: if (c.cycles >= end) { c.key = 0x0df91; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF91 BEQ $DF4F
       case 0x0df93: if (c.cycles >= end) { c.key = 0x0df93; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x95); return 0x0e08c; // $DF93 JSR $E08C
-      case 0x0df96: if (c.cycles >= end) { c.key = 0x0df96; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF96 BEQ $DF4F
+      case 0x0df96: if (c.cycles >= end) { c.key = 0x0df96; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF96 BEQ $DF4F
       case 0x0df98: if (c.cycles >= end) { c.key = 0x0df98; return -1; } c.cycles += 6; c.push(0xdf); c.push(0x9a); return 0x0e06a; // $DF98 JSR $E06A
-      case 0x0df9b: if (c.cycles >= end) { c.key = 0x0df9b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0df4f; continue; } // $DF9B BEQ $DF4F
+      case 0x0df9b: if (c.cycles >= end) { c.key = 0x0df9b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0df4f; continue; } // $DF9B BEQ $DF4F
       case 0x0df9d: if (c.cycles >= end) { c.key = 0x0df9d; return -1; } c.cycles += 3; return 0x0e03d; // $DF9D JMP $E03D
       case 0x0dfa3: if (c.cycles >= end) { c.key = 0x0dfa3; return -1; } c.cycles += 6; c.push(0xdf); c.push(0xa5); return 0x0e059; // $DFA3 JSR $E059
       case 0x0dfa6: if (c.cycles >= end) { c.key = 0x0dfa6; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0e025; } return 0x0dfa8; // $DFA6 BEQ $E025
@@ -3965,7 +3966,7 @@ function b100(c, bus, ram, rom, end, pc) {
       case 0x0dff6: if (c.cycles >= end) { c.key = 0x0dff6; return -1; } c.cycles += 6; c.push(0xdf); c.push(0xf8); return 0x0e08c; // $DFF6 JSR $E08C
       case 0x0dff9: if (c.cycles >= end) { c.key = 0x0dff9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0e025; } // $DFF9 BEQ $E025
       case 0x0dffb: if (c.cycles >= end) { c.key = 0x0dffb; return -1; } c.cycles += 6; c.push(0xdf); c.push(0xfd); return 0x0e07b; // $DFFB JSR $E07B
-      case 0x0dffe: if (c.cycles >= end) { c.key = 0x0dffe; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e025; } // $DFFE BEQ $E025
+      case 0x0dffe: if (c.cycles >= end) { c.key = 0x0dffe; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e025; } // $DFFE BEQ $E025
       case 0x0e000: if (c.cycles >= end) { c.key = 0x0e000; return -1; } c.cycles += 6; c.push(0xe0); c.push(0x02); return 0x0e059; // $E000 JSR $E059
       default: return pc;
     }
@@ -3974,16 +3975,16 @@ function b100(c, bus, ram, rom, end, pc) {
 function b101(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0e003: if (c.cycles >= end) { c.key = 0x0e003; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e025; continue; } // $E003 BEQ $E025
+      case 0x0e003: if (c.cycles >= end) { c.key = 0x0e003; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e025; continue; } // $E003 BEQ $E025
       case 0x0e005: if (c.cycles >= end) { c.key = 0x0e005; return -1; } c.cycles += 3; pc = 0x0e03d; continue; // $E005 JMP $E03D
       case 0x0e00b: if (c.cycles >= end) { c.key = 0x0e00b; return -1; } c.cycles += 6; c.push(0xe0); c.push(0x0d); return 0x0e08c; // $E00B JSR $E08C
-      case 0x0e00e: if (c.cycles >= end) { c.key = 0x0e00e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e025; continue; } // $E00E BEQ $E025
+      case 0x0e00e: if (c.cycles >= end) { c.key = 0x0e00e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e025; continue; } // $E00E BEQ $E025
       case 0x0e010: if (c.cycles >= end) { c.key = 0x0e010; return -1; } c.cycles += 6; c.push(0xe0); c.push(0x12); return 0x0e06a; // $E010 JSR $E06A
-      case 0x0e013: if (c.cycles >= end) { c.key = 0x0e013; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e025; continue; } // $E013 BEQ $E025
+      case 0x0e013: if (c.cycles >= end) { c.key = 0x0e013; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e025; continue; } // $E013 BEQ $E025
       case 0x0e015: if (c.cycles >= end) { c.key = 0x0e015; return -1; } c.cycles += 6; c.push(0xe0); c.push(0x17); return 0x0e07b; // $E015 JSR $E07B
-      case 0x0e018: if (c.cycles >= end) { c.key = 0x0e018; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e025; continue; } // $E018 BEQ $E025
+      case 0x0e018: if (c.cycles >= end) { c.key = 0x0e018; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e025; continue; } // $E018 BEQ $E025
       case 0x0e01a: if (c.cycles >= end) { c.key = 0x0e01a; return -1; } c.cycles += 6; c.push(0xe0); c.push(0x1c); return 0x0e059; // $E01A JSR $E059
-      case 0x0e01d: if (c.cycles >= end) { c.key = 0x0e01d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e025; continue; } // $E01D BEQ $E025
+      case 0x0e01d: if (c.cycles >= end) { c.key = 0x0e01d; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e025; continue; } // $E01D BEQ $E025
       case 0x0e01f: if (c.cycles >= end) { c.key = 0x0e01f; return -1; } c.cycles += 3; pc = 0x0e03d; continue; // $E01F JMP $E03D
       case 0x0e025: if (c.cycles >= end) { c.key = 0x0e025; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x70]); // $E025 LDX $70
       case 0x0e027: if (c.cycles >= end) { c.key = 0x0e027; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $E027 LDA #$00
@@ -4059,11 +4060,11 @@ function b103(c, bus, ram, rom, end, pc) {
       case 0x0e09e: if (c.cycles >= end) { c.key = 0x0e09e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $E09E LDA $04
       case 0x0e0a0: if (c.cycles >= end) { c.key = 0x0e0a0; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E0A0 AND #$0F
       case 0x0e0a2: if (c.cycles >= end) { c.key = 0x0e0a2; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $E0A2 CMP #$0F
-      case 0x0e0a4: if (c.cycles >= end) { c.key = 0x0e0a4; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0b3; continue; } // $E0A4 BEQ $E0B3
+      case 0x0e0a4: if (c.cycles >= end) { c.key = 0x0e0a4; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0b3; continue; } // $E0A4 BEQ $E0B3
       case 0x0e0a6: if (c.cycles >= end) { c.key = 0x0e0a6; return -1; } c.cycles += 2; c.cmp(c.a, 0x0e); // $E0A6 CMP #$0E
-      case 0x0e0a8: if (c.cycles >= end) { c.key = 0x0e0a8; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0b3; continue; } // $E0A8 BEQ $E0B3
+      case 0x0e0a8: if (c.cycles >= end) { c.key = 0x0e0a8; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0b3; continue; } // $E0A8 BEQ $E0B3
       case 0x0e0aa: if (c.cycles >= end) { c.key = 0x0e0aa; return -1; } c.cycles += 2; c.cmp(c.a, 0x0d); // $E0AA CMP #$0D
-      case 0x0e0ac: if (c.cycles >= end) { c.key = 0x0e0ac; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0b3; continue; } // $E0AC BEQ $E0B3
+      case 0x0e0ac: if (c.cycles >= end) { c.key = 0x0e0ac; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0b3; continue; } // $E0AC BEQ $E0B3
       case 0x0e0ae: if (c.cycles >= end) { c.key = 0x0e0ae; return -1; } c.cycles += 2; c.cmp(c.a, 0x0c); // $E0AE CMP #$0C
       case 0x0e0b0: if (c.cycles >= end) { c.key = 0x0e0b0; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E0B0 STA $F5
       case 0x0e0b2: if (c.cycles >= end) { c.key = 0x0e0b2; return -1; } c.cycles += 2;  // $E0B2 NOP
@@ -4075,15 +4076,15 @@ function b103(c, bus, ram, rom, end, pc) {
       case 0x0e0bd: if (c.cycles >= end) { c.key = 0x0e0bd; return -1; } c.cycles += 5; ram[0x08] = c.setNZ((ram[0x08] + 1) & 0xff); // $E0BD INC $08
       case 0x0e0bf: if (c.cycles >= end) { c.key = 0x0e0bf; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $E0BF LDA $08
       case 0x0e0c1: if (c.cycles >= end) { c.key = 0x0e0c1; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0c); // $E0C1 AND #$0C
-      case 0x0e0c3: if (c.cycles >= end) { c.key = 0x0e0c3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e0e3; } // $E0C3 BEQ $E0E3
+      case 0x0e0c3: if (c.cycles >= end) { c.key = 0x0e0c3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e0e3; } // $E0C3 BEQ $E0E3
       case 0x0e0c5: if (c.cycles >= end) { c.key = 0x0e0c5; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $E0C5 CMP #$08
-      case 0x0e0c7: if (c.cycles >= end) { c.key = 0x0e0c7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e0f8; } // $E0C7 BNE $E0F8
+      case 0x0e0c7: if (c.cycles >= end) { c.key = 0x0e0c7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e0f8; } // $E0C7 BNE $E0F8
       case 0x0e0c9: if (c.cycles >= end) { c.key = 0x0e0c9; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $E0C9 LDA $08
       case 0x0e0cb: if (c.cycles >= end) { c.key = 0x0e0cb; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E0CB AND #$F0
       case 0x0e0cd: if (c.cycles >= end) { c.key = 0x0e0cd; return -1; } c.cycles += 2; c.cmp(c.a, 0x10); // $E0CD CMP #$10
-      case 0x0e0cf: if (c.cycles >= end) { c.key = 0x0e0cf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e0f8; } // $E0CF BEQ $E0F8
+      case 0x0e0cf: if (c.cycles >= end) { c.key = 0x0e0cf; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e0f8; } // $E0CF BEQ $E0F8
       case 0x0e0d1: if (c.cycles >= end) { c.key = 0x0e0d1; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $E0D1 CMP #$40
-      case 0x0e0d3: if (c.cycles >= end) { c.key = 0x0e0d3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e0f8; } return 0x0e0d5; // $E0D3 BEQ $E0F8
+      case 0x0e0d3: if (c.cycles >= end) { c.key = 0x0e0d3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e0f8; } return 0x0e0d5; // $E0D3 BEQ $E0F8
       default: return pc;
     }
   }
@@ -4092,19 +4093,19 @@ function b104(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0e0d5: if (c.cycles >= end) { c.key = 0x0e0d5; return -1; } c.cycles += 2; c.cmp(c.a, 0x70); // $E0D5 CMP #$70
-      case 0x0e0d7: if (c.cycles >= end) { c.key = 0x0e0d7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0f8; continue; } // $E0D7 BEQ $E0F8
+      case 0x0e0d7: if (c.cycles >= end) { c.key = 0x0e0d7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0f8; continue; } // $E0D7 BEQ $E0F8
       case 0x0e0d9: if (c.cycles >= end) { c.key = 0x0e0d9; return -1; } c.cycles += 2; c.cmp(c.a, 0xa0); // $E0D9 CMP #$A0
-      case 0x0e0db: if (c.cycles >= end) { c.key = 0x0e0db; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0f8; continue; } // $E0DB BEQ $E0F8
+      case 0x0e0db: if (c.cycles >= end) { c.key = 0x0e0db; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0f8; continue; } // $E0DB BEQ $E0F8
       case 0x0e0dd: if (c.cycles >= end) { c.key = 0x0e0dd; return -1; } c.cycles += 2; c.cmp(c.a, 0xd0); // $E0DD CMP #$D0
       case 0x0e0df: if (c.cycles >= end) { c.key = 0x0e0df; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E0DF RTS
       case 0x0e0e3: if (c.cycles >= end) { c.key = 0x0e0e3; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x08]); // $E0E3 LDA $08
       case 0x0e0e5: if (c.cycles >= end) { c.key = 0x0e0e5; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E0E5 AND #$F0
       case 0x0e0e7: if (c.cycles >= end) { c.key = 0x0e0e7; return -1; } c.cycles += 2; c.cmp(c.a, 0x30); // $E0E7 CMP #$30
-      case 0x0e0e9: if (c.cycles >= end) { c.key = 0x0e0e9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0f8; continue; } // $E0E9 BEQ $E0F8
+      case 0x0e0e9: if (c.cycles >= end) { c.key = 0x0e0e9; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0f8; continue; } // $E0E9 BEQ $E0F8
       case 0x0e0eb: if (c.cycles >= end) { c.key = 0x0e0eb; return -1; } c.cycles += 2; c.cmp(c.a, 0x60); // $E0EB CMP #$60
-      case 0x0e0ed: if (c.cycles >= end) { c.key = 0x0e0ed; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0f8; continue; } // $E0ED BEQ $E0F8
+      case 0x0e0ed: if (c.cycles >= end) { c.key = 0x0e0ed; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0f8; continue; } // $E0ED BEQ $E0F8
       case 0x0e0ef: if (c.cycles >= end) { c.key = 0x0e0ef; return -1; } c.cycles += 2; c.cmp(c.a, 0x90); // $E0EF CMP #$90
-      case 0x0e0f1: if (c.cycles >= end) { c.key = 0x0e0f1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e0f8; continue; } // $E0F1 BEQ $E0F8
+      case 0x0e0f1: if (c.cycles >= end) { c.key = 0x0e0f1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e0f8; continue; } // $E0F1 BEQ $E0F8
       case 0x0e0f3: if (c.cycles >= end) { c.key = 0x0e0f3; return -1; } c.cycles += 2; c.cmp(c.a, 0xc0); // $E0F3 CMP #$C0
       case 0x0e0f5: if (c.cycles >= end) { c.key = 0x0e0f5; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E0F5 STA $F5
       case 0x0e0f7: if (c.cycles >= end) { c.key = 0x0e0f7; return -1; } c.cycles += 2;  // $E0F7 NOP
@@ -4157,11 +4158,11 @@ function b105(c, bus, ram, rom, end, pc) {
       case 0x0e13e: if (c.cycles >= end) { c.key = 0x0e13e; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E13E RTS
       case 0x0e141: if (c.cycles >= end) { c.key = 0x0e141; return -1; } c.cycles += 2;  // $E141 NOP
       case 0x0e142: if (c.cycles >= end) { c.key = 0x0e142; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xc4]); // $E142 LDA $C4
-      case 0x0e144: if (c.cycles >= end) { c.key = 0x0e144; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e175; } // $E144 BEQ $E175
+      case 0x0e144: if (c.cycles >= end) { c.key = 0x0e144; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e175; } // $E144 BEQ $E175
       case 0x0e146: if (c.cycles >= end) { c.key = 0x0e146; return -1; } c.cycles += 6; c.push(0xe1); c.push(0x48); return 0x0e8f2; // $E146 JSR $E8F2
       case 0x0e149: if (c.cycles >= end) { c.key = 0x0e149; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E149 LDA $13
       case 0x0e14b: if (c.cycles >= end) { c.key = 0x0e14b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x3f); // $E14B AND #$3F
-      case 0x0e14d: if (c.cycles >= end) { c.key = 0x0e14d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e175; } return 0x0e14f; // $E14D BNE $E175
+      case 0x0e14d: if (c.cycles >= end) { c.key = 0x0e14d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e175; } return 0x0e14f; // $E14D BNE $E175
       default: return pc;
     }
   }
@@ -4170,7 +4171,7 @@ function b106(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0e14f: if (c.cycles >= end) { c.key = 0x0e14f; return -1; } c.cycles += 5; ram[0xc4] = c.setNZ((ram[0xc4] - 1) & 0xff); // $E14F DEC $C4
-      case 0x0e151: if (c.cycles >= end) { c.key = 0x0e151; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e175; continue; } // $E151 BNE $E175
+      case 0x0e151: if (c.cycles >= end) { c.key = 0x0e151; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e175; continue; } // $E151 BNE $E175
       case 0x0e153: if (c.cycles >= end) { c.key = 0x0e153; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x63]); // $E153 LDA $63
       case 0x0e155: if (c.cycles >= end) { c.key = 0x0e155; return -1; } c.cycles += 2; c.a = c.asl(c.a); // $E155 ASL A
       case 0x0e156: if (c.cycles >= end) { c.key = 0x0e156; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $E156 TAX
@@ -4198,7 +4199,7 @@ function b106(c, bus, ram, rom, end, pc) {
       case 0x0e198: if (c.cycles >= end) { c.key = 0x0e198; return -1; } c.cycles += 2;  // $E198 NOP
       case 0x0e199: if (c.cycles >= end) { c.key = 0x0e199; return -1; } c.cycles += 4; c.y = c.setNZ(ram[0x0200]); // $E199 LDY $0200
       case 0x0e19c: if (c.cycles >= end) { c.key = 0x0e19c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.y))); // $E19C LDA $0202,Y
-      case 0x0e19f: if (c.cycles >= end) { c.key = 0x0e19f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e1a5; continue; } // $E19F BNE $E1A5
+      case 0x0e19f: if (c.cycles >= end) { c.key = 0x0e19f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e1a5; continue; } // $E19F BNE $E1A5
       case 0x0e1a1: if (c.cycles >= end) { c.key = 0x0e1a1; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E1A1 RTS
       case 0x0e1a5: if (c.cycles >= end) { c.key = 0x0e1a5; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); return 0x0e1a7; // $E1A5 AND #$0F
       default: return pc;
@@ -4238,7 +4239,7 @@ function b107(c, bus, ram, rom, end, pc) {
       case 0x0e20f: if (c.cycles >= end) { c.key = 0x0e20f; return -1; } c.cycles += 6; ram[0x0200] = c.setNZ((ram[0x0200] + 1) & 0xff); // $E20F INC $0200
       case 0x0e212: if (c.cycles >= end) { c.key = 0x0e212; return -1; } c.cycles += 3; return 0x0e199; // $E212 JMP $E199
       case 0x0e218: if (c.cycles >= end) { c.key = 0x0e218; return -1; } c.cycles += 6; c.push(0xe2); c.push(0x1a); return 0x1e516; // $E218 JSR $E516
-      case 0x0e21b: if (c.cycles >= end) { c.key = 0x0e21b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e230; } // $E21B BNE $E230
+      case 0x0e21b: if (c.cycles >= end) { c.key = 0x0e21b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e230; } // $E21B BNE $E230
       case 0x0e21d: if (c.cycles >= end) { c.key = 0x0e21d; return -1; } c.cycles += 6; c.push(0xe2); c.push(0x1f); return 0x1e56e; // $E21D JSR $E56E
       default: return pc;
     }
@@ -4247,7 +4248,7 @@ function b107(c, bus, ram, rom, end, pc) {
 function b108(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0e220: if (c.cycles >= end) { c.key = 0x0e220; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e230; continue; } // $E220 BNE $E230
+      case 0x0e220: if (c.cycles >= end) { c.key = 0x0e220; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e230; continue; } // $E220 BNE $E230
       case 0x0e222: if (c.cycles >= end) { c.key = 0x0e222; return -1; } c.cycles += 6; c.push(0xe2); c.push(0x24); return 0x0cca2; // $E222 JSR $CCA2
       case 0x0e225: if (c.cycles >= end) { c.key = 0x0e225; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $E225 TYA
       case 0x0e226: if (c.cycles >= end) { c.key = 0x0e226; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $E226 TAX
@@ -4258,7 +4259,7 @@ function b108(c, bus, ram, rom, end, pc) {
       case 0x0e230: if (c.cycles >= end) { c.key = 0x0e230; return -1; } c.cycles += 3; return 0x0e203; // $E230 JMP $E203
       case 0x0e236: if (c.cycles >= end) { c.key = 0x0e236; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E236 LDA $0205,Y
       case 0x0e239: if (c.cycles >= end) { c.key = 0x0e239; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E239 AND #$10
-      case 0x0e23b: if (c.cycles >= end) { c.key = 0x0e23b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e25b; continue; } // $E23B BNE $E25B
+      case 0x0e23b: if (c.cycles >= end) { c.key = 0x0e23b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e25b; continue; } // $E23B BNE $E25B
       case 0x0e23d: if (c.cycles >= end) { c.key = 0x0e23d; return -1; } c.cycles += 2; c.p |= 0x01; // $E23D SEC
       case 0x0e23e: if (c.cycles >= end) { c.key = 0x0e23e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E23E LDA $05
       case 0x0e240: if (c.cycles >= end) { c.key = 0x0e240; return -1; } c.cycles += 2; c.sbc(0x08); // $E240 SBC #$08
@@ -4273,7 +4274,7 @@ function b108(c, bus, ram, rom, end, pc) {
       case 0x0e255: if (c.cycles >= end) { c.key = 0x0e255; return -1; } c.cycles += 3; return 0x0e203; // $E255 JMP $E203
       case 0x0e25b: if (c.cycles >= end) { c.key = 0x0e25b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E25B LDA $13
       case 0x0e25d: if (c.cycles >= end) { c.key = 0x0e25d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E25D AND #$03
-      case 0x0e25f: if (c.cycles >= end) { c.key = 0x0e25f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e255; continue; } // $E25F BNE $E255
+      case 0x0e25f: if (c.cycles >= end) { c.key = 0x0e25f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e255; continue; } // $E25F BNE $E255
       case 0x0e261: if (c.cycles >= end) { c.key = 0x0e261; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E261 LDA $0205,Y
       case 0x0e264: if (c.cycles >= end) { c.key = 0x0e264; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E264 AND #$0F
       case 0x0e266: if (c.cycles >= end) { c.key = 0x0e266; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E266 STA $0205,Y
@@ -4288,12 +4289,12 @@ function b109(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0e26e: if (c.cycles >= end) { c.key = 0x0e26e; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x30); // $E26E ORA #$30
       case 0x0e270: if (c.cycles >= end) { c.key = 0x0e270; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E270 STA $0202,Y
-      case 0x0e273: if (c.cycles >= end) { c.key = 0x0e273; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e255; } // $E273 BNE $E255
+      case 0x0e273: if (c.cycles >= end) { c.key = 0x0e273; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e255; } // $E273 BNE $E255
       case 0x0e275: if (c.cycles >= end) { c.key = 0x0e275; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E275 STA $F5
       case 0x0e277: if (c.cycles >= end) { c.key = 0x0e277; return -1; } c.cycles += 2;  // $E277 NOP
       case 0x0e278: if (c.cycles >= end) { c.key = 0x0e278; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E278 LDA $0205,Y
       case 0x0e27b: if (c.cycles >= end) { c.key = 0x0e27b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E27B AND #$10
-      case 0x0e27d: if (c.cycles >= end) { c.key = 0x0e27d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e293; continue; } // $E27D BNE $E293
+      case 0x0e27d: if (c.cycles >= end) { c.key = 0x0e27d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e293; continue; } // $E27D BNE $E293
       case 0x0e27f: if (c.cycles >= end) { c.key = 0x0e27f; return -1; } c.cycles += 6; c.push(0xe2); c.push(0x81); return 0x0e4b2; // $E27F JSR $E4B2
       case 0x0e282: if (c.cycles >= end) { c.key = 0x0e282; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E282 LDA $0205,Y
       case 0x0e285: if (c.cycles >= end) { c.key = 0x0e285; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E285 ORA #$10
@@ -4303,7 +4304,7 @@ function b109(c, bus, ram, rom, end, pc) {
       case 0x0e28d: if (c.cycles >= end) { c.key = 0x0e28d; return -1; } c.cycles += 3; return 0x0e203; // $E28D JMP $E203
       case 0x0e293: if (c.cycles >= end) { c.key = 0x0e293; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E293 LDA $13
       case 0x0e295: if (c.cycles >= end) { c.key = 0x0e295; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E295 AND #$03
-      case 0x0e297: if (c.cycles >= end) { c.key = 0x0e297; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e28d; continue; } // $E297 BNE $E28D
+      case 0x0e297: if (c.cycles >= end) { c.key = 0x0e297; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e28d; continue; } // $E297 BNE $E28D
       case 0x0e299: if (c.cycles >= end) { c.key = 0x0e299; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E299 LDA $0205,Y
       case 0x0e29c: if (c.cycles >= end) { c.key = 0x0e29c; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E29C AND #$0F
       case 0x0e29e: if (c.cycles >= end) { c.key = 0x0e29e; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E29E STA $0205,Y
@@ -4311,12 +4312,12 @@ function b109(c, bus, ram, rom, end, pc) {
       case 0x0e2a4: if (c.cycles >= end) { c.key = 0x0e2a4; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E2A4 AND #$0F
       case 0x0e2a6: if (c.cycles >= end) { c.key = 0x0e2a6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x40); // $E2A6 ORA #$40
       case 0x0e2a8: if (c.cycles >= end) { c.key = 0x0e2a8; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E2A8 STA $0202,Y
-      case 0x0e2ab: if (c.cycles >= end) { c.key = 0x0e2ab; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e28d; continue; } // $E2AB BNE $E28D
+      case 0x0e2ab: if (c.cycles >= end) { c.key = 0x0e2ab; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e28d; continue; } // $E2AB BNE $E28D
       case 0x0e2ad: if (c.cycles >= end) { c.key = 0x0e2ad; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E2AD STA $F5
       case 0x0e2af: if (c.cycles >= end) { c.key = 0x0e2af; return -1; } c.cycles += 2;  // $E2AF NOP
       case 0x0e2b0: if (c.cycles >= end) { c.key = 0x0e2b0; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E2B0 LDA $0205,Y
       case 0x0e2b3: if (c.cycles >= end) { c.key = 0x0e2b3; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E2B3 AND #$10
-      case 0x0e2b5: if (c.cycles >= end) { c.key = 0x0e2b5; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e2cb; } // $E2B5 BNE $E2CB
+      case 0x0e2b5: if (c.cycles >= end) { c.key = 0x0e2b5; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e2cb; } // $E2B5 BNE $E2CB
       case 0x0e2b7: if (c.cycles >= end) { c.key = 0x0e2b7; return -1; } c.cycles += 6; c.push(0xe2); c.push(0xb9); return 0x0e4bb; // $E2B7 JSR $E4BB
       default: return pc;
     }
@@ -4333,7 +4334,7 @@ function b110(c, bus, ram, rom, end, pc) {
       case 0x0e2c5: if (c.cycles >= end) { c.key = 0x0e2c5; return -1; } c.cycles += 3; return 0x0e203; // $E2C5 JMP $E203
       case 0x0e2cb: if (c.cycles >= end) { c.key = 0x0e2cb; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E2CB LDA $13
       case 0x0e2cd: if (c.cycles >= end) { c.key = 0x0e2cd; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E2CD AND #$03
-      case 0x0e2cf: if (c.cycles >= end) { c.key = 0x0e2cf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e2c5; continue; } // $E2CF BNE $E2C5
+      case 0x0e2cf: if (c.cycles >= end) { c.key = 0x0e2cf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e2c5; continue; } // $E2CF BNE $E2C5
       case 0x0e2d1: if (c.cycles >= end) { c.key = 0x0e2d1; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E2D1 LDA $0205,Y
       case 0x0e2d4: if (c.cycles >= end) { c.key = 0x0e2d4; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E2D4 AND #$0F
       case 0x0e2d6: if (c.cycles >= end) { c.key = 0x0e2d6; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E2D6 STA $0205,Y
@@ -4341,7 +4342,7 @@ function b110(c, bus, ram, rom, end, pc) {
       case 0x0e2dc: if (c.cycles >= end) { c.key = 0x0e2dc; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x50); // $E2DC ORA #$50
       case 0x0e2de: if (c.cycles >= end) { c.key = 0x0e2de; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x5f); // $E2DE AND #$5F
       case 0x0e2e0: if (c.cycles >= end) { c.key = 0x0e2e0; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E2E0 STA $0202,Y
-      case 0x0e2e3: if (c.cycles >= end) { c.key = 0x0e2e3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e2c5; continue; } // $E2E3 BNE $E2C5
+      case 0x0e2e3: if (c.cycles >= end) { c.key = 0x0e2e3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e2c5; continue; } // $E2E3 BNE $E2C5
       case 0x0e2e5: if (c.cycles >= end) { c.key = 0x0e2e5; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E2E5 STA $F5
       case 0x0e2e7: if (c.cycles >= end) { c.key = 0x0e2e7; return -1; } c.cycles += 2;  // $E2E7 NOP
       case 0x0e2e8: if (c.cycles >= end) { c.key = 0x0e2e8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E2E8 LDA $0205,Y
@@ -4376,7 +4377,7 @@ function b111(c, bus, ram, rom, end, pc) {
       case 0x1e31f: if (c.cycles >= end) { c.key = 0x1e31f; return -1; } c.cycles += 2;  // $E31F* NOP
       case 0x0e320: if (c.cycles >= end) { c.key = 0x0e320; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E320 LDA $0205,Y
       case 0x0e323: if (c.cycles >= end) { c.key = 0x0e323; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E323 AND #$10
-      case 0x0e325: if (c.cycles >= end) { c.key = 0x0e325; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e33b; continue; } // $E325 BNE $E33B
+      case 0x0e325: if (c.cycles >= end) { c.key = 0x0e325; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e33b; continue; } // $E325 BNE $E33B
       case 0x0e327: if (c.cycles >= end) { c.key = 0x0e327; return -1; } c.cycles += 6; c.push(0xe3); c.push(0x29); return 0x0e4a9; // $E327 JSR $E4A9
       case 0x0e32a: if (c.cycles >= end) { c.key = 0x0e32a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E32A LDA $0205,Y
       case 0x0e32d: if (c.cycles >= end) { c.key = 0x0e32d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E32D ORA #$10
@@ -4386,7 +4387,7 @@ function b111(c, bus, ram, rom, end, pc) {
       case 0x0e335: if (c.cycles >= end) { c.key = 0x0e335; return -1; } c.cycles += 3; return 0x0e203; // $E335 JMP $E203
       case 0x0e33b: if (c.cycles >= end) { c.key = 0x0e33b; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E33B LDA $13
       case 0x0e33d: if (c.cycles >= end) { c.key = 0x0e33d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E33D AND #$03
-      case 0x0e33f: if (c.cycles >= end) { c.key = 0x0e33f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e335; continue; } // $E33F BNE $E335
+      case 0x0e33f: if (c.cycles >= end) { c.key = 0x0e33f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e335; continue; } // $E33F BNE $E335
       case 0x0e341: if (c.cycles >= end) { c.key = 0x0e341; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E341 LDA $0205,Y
       case 0x0e344: if (c.cycles >= end) { c.key = 0x0e344; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E344 AND #$0F
       case 0x0e346: if (c.cycles >= end) { c.key = 0x0e346; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E346 STA $0205,Y
@@ -4394,7 +4395,7 @@ function b111(c, bus, ram, rom, end, pc) {
       case 0x0e34c: if (c.cycles >= end) { c.key = 0x0e34c; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E34C AND #$0F
       case 0x0e34e: if (c.cycles >= end) { c.key = 0x0e34e; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0xb0); // $E34E ORA #$B0
       case 0x0e350: if (c.cycles >= end) { c.key = 0x0e350; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E350 STA $0202,Y
-      case 0x0e353: if (c.cycles >= end) { c.key = 0x0e353; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e335; continue; } // $E353 BNE $E335
+      case 0x0e353: if (c.cycles >= end) { c.key = 0x0e353; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e335; continue; } // $E353 BNE $E335
       case 0x0e355: if (c.cycles >= end) { c.key = 0x0e355; return -1; } c.cycles += 3; ram[0xf5] = c.a; return 0x1e357; // $E355 STA $F5
       default: return pc;
     }
@@ -4406,7 +4407,7 @@ function b112(c, bus, ram, rom, end, pc) {
       case 0x1e357: if (c.cycles >= end) { c.key = 0x1e357; return -1; } c.cycles += 2;  // $E357* NOP
       case 0x0e358: if (c.cycles >= end) { c.key = 0x0e358; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E358 LDA $0205,Y
       case 0x0e35b: if (c.cycles >= end) { c.key = 0x0e35b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E35B AND #$10
-      case 0x0e35d: if (c.cycles >= end) { c.key = 0x0e35d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e373; continue; } // $E35D BNE $E373
+      case 0x0e35d: if (c.cycles >= end) { c.key = 0x0e35d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e373; continue; } // $E35D BNE $E373
       case 0x0e35f: if (c.cycles >= end) { c.key = 0x0e35f; return -1; } c.cycles += 6; c.push(0xe3); c.push(0x61); return 0x0e4b2; // $E35F JSR $E4B2
       case 0x0e362: if (c.cycles >= end) { c.key = 0x0e362; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E362 LDA $0205,Y
       case 0x0e365: if (c.cycles >= end) { c.key = 0x0e365; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E365 ORA #$10
@@ -4416,7 +4417,7 @@ function b112(c, bus, ram, rom, end, pc) {
       case 0x0e36d: if (c.cycles >= end) { c.key = 0x0e36d; return -1; } c.cycles += 3; return 0x0e203; // $E36D JMP $E203
       case 0x0e373: if (c.cycles >= end) { c.key = 0x0e373; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E373 LDA $13
       case 0x0e375: if (c.cycles >= end) { c.key = 0x0e375; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E375 AND #$03
-      case 0x0e377: if (c.cycles >= end) { c.key = 0x0e377; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e36d; continue; } // $E377 BNE $E36D
+      case 0x0e377: if (c.cycles >= end) { c.key = 0x0e377; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e36d; continue; } // $E377 BNE $E36D
       case 0x0e379: if (c.cycles >= end) { c.key = 0x0e379; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E379 LDA $0205,Y
       case 0x0e37c: if (c.cycles >= end) { c.key = 0x0e37c; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E37C AND #$0F
       case 0x0e37e: if (c.cycles >= end) { c.key = 0x0e37e; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E37E STA $0205,Y
@@ -4424,12 +4425,12 @@ function b112(c, bus, ram, rom, end, pc) {
       case 0x0e384: if (c.cycles >= end) { c.key = 0x0e384; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0xc0); // $E384 ORA #$C0
       case 0x0e386: if (c.cycles >= end) { c.key = 0x0e386; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xcf); // $E386 AND #$CF
       case 0x0e388: if (c.cycles >= end) { c.key = 0x0e388; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E388 STA $0202,Y
-      case 0x0e38b: if (c.cycles >= end) { c.key = 0x0e38b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e36d; continue; } // $E38B BNE $E36D
+      case 0x0e38b: if (c.cycles >= end) { c.key = 0x0e38b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e36d; continue; } // $E38B BNE $E36D
       case 0x0e38d: if (c.cycles >= end) { c.key = 0x0e38d; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E38D STA $F5
       case 0x1e38f: if (c.cycles >= end) { c.key = 0x1e38f; return -1; } c.cycles += 2;  // $E38F* NOP
       case 0x0e390: if (c.cycles >= end) { c.key = 0x0e390; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E390 LDA $0205,Y
       case 0x0e393: if (c.cycles >= end) { c.key = 0x0e393; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E393 AND #$10
-      case 0x0e395: if (c.cycles >= end) { c.key = 0x0e395; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e3ab; } // $E395 BNE $E3AB
+      case 0x0e395: if (c.cycles >= end) { c.key = 0x0e395; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e3ab; } // $E395 BNE $E3AB
       case 0x0e397: if (c.cycles >= end) { c.key = 0x0e397; return -1; } c.cycles += 6; c.push(0xe3); c.push(0x99); return 0x0e4bb; // $E397 JSR $E4BB
       case 0x0e39a: if (c.cycles >= end) { c.key = 0x0e39a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E39A LDA $0205,Y
       case 0x0e39d: if (c.cycles >= end) { c.key = 0x0e39d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E39D ORA #$10
@@ -4446,7 +4447,7 @@ function b113(c, bus, ram, rom, end, pc) {
       case 0x0e3a5: if (c.cycles >= end) { c.key = 0x0e3a5; return -1; } c.cycles += 3; return 0x0e203; // $E3A5 JMP $E203
       case 0x0e3ab: if (c.cycles >= end) { c.key = 0x0e3ab; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E3AB LDA $13
       case 0x0e3ad: if (c.cycles >= end) { c.key = 0x0e3ad; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E3AD AND #$03
-      case 0x0e3af: if (c.cycles >= end) { c.key = 0x0e3af; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e3a5; continue; } // $E3AF BNE $E3A5
+      case 0x0e3af: if (c.cycles >= end) { c.key = 0x0e3af; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e3a5; continue; } // $E3AF BNE $E3A5
       case 0x0e3b1: if (c.cycles >= end) { c.key = 0x0e3b1; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E3B1 LDA $0205,Y
       case 0x0e3b4: if (c.cycles >= end) { c.key = 0x0e3b4; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E3B4 AND #$0F
       case 0x0e3b6: if (c.cycles >= end) { c.key = 0x0e3b6; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E3B6 STA $0205,Y
@@ -4454,12 +4455,12 @@ function b113(c, bus, ram, rom, end, pc) {
       case 0x0e3bc: if (c.cycles >= end) { c.key = 0x0e3bc; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0xd0); // $E3BC ORA #$D0
       case 0x0e3be: if (c.cycles >= end) { c.key = 0x0e3be; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xdf); // $E3BE AND #$DF
       case 0x0e3c0: if (c.cycles >= end) { c.key = 0x0e3c0; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E3C0 STA $0202,Y
-      case 0x0e3c3: if (c.cycles >= end) { c.key = 0x0e3c3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e3a5; continue; } // $E3C3 BNE $E3A5
+      case 0x0e3c3: if (c.cycles >= end) { c.key = 0x0e3c3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e3a5; continue; } // $E3C3 BNE $E3A5
       case 0x0e3c5: if (c.cycles >= end) { c.key = 0x0e3c5; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E3C5 STA $F5
       case 0x1e3c7: if (c.cycles >= end) { c.key = 0x1e3c7; return -1; } c.cycles += 2;  // $E3C7* NOP
       case 0x0e3c8: if (c.cycles >= end) { c.key = 0x0e3c8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E3C8 LDA $0205,Y
       case 0x0e3cb: if (c.cycles >= end) { c.key = 0x0e3cb; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E3CB AND #$10
-      case 0x0e3cd: if (c.cycles >= end) { c.key = 0x0e3cd; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e3e3; continue; } // $E3CD BNE $E3E3
+      case 0x0e3cd: if (c.cycles >= end) { c.key = 0x0e3cd; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e3e3; continue; } // $E3CD BNE $E3E3
       case 0x0e3cf: if (c.cycles >= end) { c.key = 0x0e3cf; return -1; } c.cycles += 6; c.push(0xe3); c.push(0xd1); return 0x0e4c4; // $E3CF JSR $E4C4
       case 0x0e3d2: if (c.cycles >= end) { c.key = 0x0e3d2; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E3D2 LDA $0205,Y
       case 0x0e3d5: if (c.cycles >= end) { c.key = 0x0e3d5; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E3D5 ORA #$10
@@ -4469,7 +4470,7 @@ function b113(c, bus, ram, rom, end, pc) {
       case 0x0e3dd: if (c.cycles >= end) { c.key = 0x0e3dd; return -1; } c.cycles += 3; return 0x0e203; // $E3DD JMP $E203
       case 0x0e3e3: if (c.cycles >= end) { c.key = 0x0e3e3; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x13]); // $E3E3 LDA $13
       case 0x0e3e5: if (c.cycles >= end) { c.key = 0x0e3e5; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E3E5 AND #$03
-      case 0x0e3e7: if (c.cycles >= end) { c.key = 0x0e3e7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e3dd; continue; } // $E3E7 BNE $E3DD
+      case 0x0e3e7: if (c.cycles >= end) { c.key = 0x0e3e7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e3dd; continue; } // $E3E7 BNE $E3DD
       case 0x0e3e9: if (c.cycles >= end) { c.key = 0x0e3e9; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.y))); // $E3E9 LDA $0205,Y
       case 0x0e3ec: if (c.cycles >= end) { c.key = 0x0e3ec; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E3EC AND #$0F
       case 0x0e3ee: if (c.cycles >= end) { c.key = 0x0e3ee; return -1; } c.cycles += 5; c.write((0x0205 + c.y) & 0xffff, c.a); // $E3EE STA $0205,Y
@@ -4484,7 +4485,7 @@ function b114(c, bus, ram, rom, end, pc) {
       case 0x0e3f4: if (c.cycles >= end) { c.key = 0x0e3f4; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0xe0); // $E3F4 ORA #$E0
       case 0x0e3f6: if (c.cycles >= end) { c.key = 0x0e3f6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xef); // $E3F6 AND #$EF
       case 0x0e3f8: if (c.cycles >= end) { c.key = 0x0e3f8; return -1; } c.cycles += 5; c.write((0x0202 + c.y) & 0xffff, c.a); // $E3F8 STA $0202,Y
-      case 0x0e3fb: if (c.cycles >= end) { c.key = 0x0e3fb; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e3dd; } // $E3FB BNE $E3DD
+      case 0x0e3fb: if (c.cycles >= end) { c.key = 0x0e3fb; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e3dd; } // $E3FB BNE $E3DD
       case 0x0e3fd: if (c.cycles >= end) { c.key = 0x0e3fd; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E3FD STA $F5
       case 0x1e3ff: if (c.cycles >= end) { c.key = 0x1e3ff; return -1; } c.cycles += 2;  // $E3FF* NOP
       case 0x0e400: if (c.cycles >= end) { c.key = 0x0e400; return -1; } c.cycles += 6; c.push(0xe4); c.push(0x02); return 0x0cca2; // $E400 JSR $CCA2
@@ -4493,7 +4494,7 @@ function b114(c, bus, ram, rom, end, pc) {
       case 0x0e405: if (c.cycles >= end) { c.key = 0x0e405; return -1; } c.cycles += 7; c.rmw((0x0204 + c.x) & 0xffff, (v) => c.setNZ((v + 1) & 0xff)); // $E405 INC $0204,X
       case 0x0e408: if (c.cycles >= end) { c.key = 0x0e408; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0204, c.x))); // $E408 LDA $0204,X
       case 0x0e40b: if (c.cycles >= end) { c.key = 0x0e40b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x07); // $E40B AND #$07
-      case 0x0e40d: if (c.cycles >= end) { c.key = 0x0e40d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e451; } // $E40D BNE $E451
+      case 0x0e40d: if (c.cycles >= end) { c.key = 0x0e40d; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e451; } // $E40D BNE $E451
       case 0x0e40f: if (c.cycles >= end) { c.key = 0x0e40f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.y))); // $E40F LDA $0202,Y
       case 0x0e412: if (c.cycles >= end) { c.key = 0x0e412; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E412 AND #$0F
       case 0x0e414: if (c.cycles >= end) { c.key = 0x0e414; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E414 ORA #$10
@@ -4504,11 +4505,11 @@ function b114(c, bus, ram, rom, end, pc) {
       case 0x0e421: if (c.cycles >= end) { c.key = 0x0e421; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0206, c.y))); // $E421 LDA $0206,Y
       case 0x0e424: if (c.cycles >= end) { c.key = 0x0e424; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E424 AND #$0F
       case 0x0e426: if (c.cycles >= end) { c.key = 0x0e426; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $E426 CMP #$0F
-      case 0x0e428: if (c.cycles >= end) { c.key = 0x0e428; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e436; continue; } // $E428 BEQ $E436
+      case 0x0e428: if (c.cycles >= end) { c.key = 0x0e428; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e436; continue; } // $E428 BEQ $E436
       case 0x0e42a: if (c.cycles >= end) { c.key = 0x0e42a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0206, c.y))); // $E42A LDA $0206,Y
       case 0x0e42d: if (c.cycles >= end) { c.key = 0x0e42d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E42D AND #$F0
       case 0x0e42f: if (c.cycles >= end) { c.key = 0x0e42f; return -1; } c.cycles += 2; c.cmp(c.a, 0xf0); // $E42F CMP #$F0
-      case 0x0e431: if (c.cycles >= end) { c.key = 0x0e431; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e451; } // $E431 BNE $E451
+      case 0x0e431: if (c.cycles >= end) { c.key = 0x0e431; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e451; } // $E431 BNE $E451
       case 0x0e433: if (c.cycles >= end) { c.key = 0x0e433; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E433 STA $F5
       case 0x0e435: if (c.cycles >= end) { c.key = 0x0e435; return -1; } c.cycles += 2;  // $E435 NOP
       case 0x0e436: if (c.cycles >= end) { c.key = 0x0e436; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $E436 LDA #$00
@@ -4536,9 +4537,9 @@ function b115(c, bus, ram, rom, end, pc) {
       case 0x0e45c: if (c.cycles >= end) { c.key = 0x0e45c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0205, c.x))); // $E45C LDA $0205,X
       case 0x0e45f: if (c.cycles >= end) { c.key = 0x0e45f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E45F AND #$0F
       case 0x0e461: if (c.cycles >= end) { c.key = 0x0e461; return -1; } c.cycles += 5; c.write((0x0205 + c.x) & 0xffff, c.a); // $E461 STA $0205,X
-      case 0x0e464: if (c.cycles >= end) { c.key = 0x0e464; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e46e; continue; } // $E464 BEQ $E46E
+      case 0x0e464: if (c.cycles >= end) { c.key = 0x0e464; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e46e; continue; } // $E464 BEQ $E46E
       case 0x0e466: if (c.cycles >= end) { c.key = 0x0e466; return -1; } c.cycles += 7; c.rmw((0x0205 + c.x) & 0xffff, (v) => c.setNZ((v - 1) & 0xff)); // $E466 DEC $0205,X
-      case 0x0e469: if (c.cycles >= end) { c.key = 0x0e469; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e484; continue; } // $E469 BNE $E484
+      case 0x0e469: if (c.cycles >= end) { c.key = 0x0e469; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e484; continue; } // $E469 BNE $E484
       case 0x0e46b: if (c.cycles >= end) { c.key = 0x0e46b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E46B STA $F5
       case 0x0e46d: if (c.cycles >= end) { c.key = 0x0e46d; return -1; } c.cycles += 2;  // $E46D NOP
       case 0x0e46e: if (c.cycles >= end) { c.key = 0x0e46e; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.y))); // $E46E LDA $0202,Y
@@ -4566,17 +4567,17 @@ function b116(c, bus, ram, rom, end, pc) {
       case 0x0e4a9: if (c.cycles >= end) { c.key = 0x0e4a9; return -1; } c.cycles += 2;  // $E4A9 NOP
       case 0x0e4aa: if (c.cycles >= end) { c.key = 0x0e4aa; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $E4AA LDA #$00
       case 0x0e4ac: if (c.cycles >= end) { c.key = 0x0e4ac; return -1; } c.cycles += 3; ram[0x11] = c.a; // $E4AC STA $11
-      case 0x0e4ae: if (c.cycles >= end) { c.key = 0x0e4ae; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e4cc; continue; } // $E4AE BEQ $E4CC
+      case 0x0e4ae: if (c.cycles >= end) { c.key = 0x0e4ae; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e4cc; continue; } // $E4AE BEQ $E4CC
       case 0x0e4b0: if (c.cycles >= end) { c.key = 0x0e4b0; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E4B0 STA $F5
       case 0x0e4b2: if (c.cycles >= end) { c.key = 0x0e4b2; return -1; } c.cycles += 2;  // $E4B2 NOP
       case 0x0e4b3: if (c.cycles >= end) { c.key = 0x0e4b3; return -1; } c.cycles += 2; c.a = c.setNZ(0x01); // $E4B3 LDA #$01
       case 0x0e4b5: if (c.cycles >= end) { c.key = 0x0e4b5; return -1; } c.cycles += 3; ram[0x11] = c.a; // $E4B5 STA $11
-      case 0x0e4b7: if (c.cycles >= end) { c.key = 0x0e4b7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e4cc; continue; } // $E4B7 BEQ $E4CC
+      case 0x0e4b7: if (c.cycles >= end) { c.key = 0x0e4b7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e4cc; continue; } // $E4B7 BEQ $E4CC
       case 0x0e4b9: if (c.cycles >= end) { c.key = 0x0e4b9; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E4B9 STA $F5
       case 0x0e4bb: if (c.cycles >= end) { c.key = 0x0e4bb; return -1; } c.cycles += 2;  // $E4BB NOP
       case 0x0e4bc: if (c.cycles >= end) { c.key = 0x0e4bc; return -1; } c.cycles += 2; c.a = c.setNZ(0x02); // $E4BC LDA #$02
       case 0x0e4be: if (c.cycles >= end) { c.key = 0x0e4be; return -1; } c.cycles += 3; ram[0x11] = c.a; // $E4BE STA $11
-      case 0x0e4c0: if (c.cycles >= end) { c.key = 0x0e4c0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e4cc; continue; } // $E4C0 BEQ $E4CC
+      case 0x0e4c0: if (c.cycles >= end) { c.key = 0x0e4c0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e4cc; continue; } // $E4C0 BEQ $E4CC
       case 0x0e4c2: if (c.cycles >= end) { c.key = 0x0e4c2; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E4C2 STA $F5
       case 0x0e4c4: if (c.cycles >= end) { c.key = 0x0e4c4; return -1; } c.cycles += 2;  // $E4C4 NOP
       case 0x0e4c5: if (c.cycles >= end) { c.key = 0x0e4c5; return -1; } c.cycles += 2; c.a = c.setNZ(0x03); // $E4C5 LDA #$03
@@ -4628,7 +4629,7 @@ function b117(c, bus, ram, rom, end, pc) {
       case 0x1e516: if (c.cycles >= end) { c.key = 0x1e516; return -1; } c.cycles += 2;  // $E516* NOP
       case 0x0e517: if (c.cycles >= end) { c.key = 0x0e517; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E517 LDA $05
       case 0x0e519: if (c.cycles >= end) { c.key = 0x0e519; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x07); // $E519 AND #$07
-      case 0x0e51b: if (c.cycles >= end) { c.key = 0x0e51b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e569; } // $E51B BNE $E569
+      case 0x0e51b: if (c.cycles >= end) { c.key = 0x0e51b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e569; } // $E51B BNE $E569
       case 0x0e51d: if (c.cycles >= end) { c.key = 0x0e51d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0207, c.y))); return 0x0e520; // $E51D LDA $0207,Y
       default: return pc;
     }
@@ -4638,12 +4639,12 @@ function b118(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0e520: if (c.cycles >= end) { c.key = 0x0e520; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E520 CMP $04
-      case 0x0e522: if (c.cycles >= end) { c.key = 0x0e522; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e569; } // $E522 BNE $E569
+      case 0x0e522: if (c.cycles >= end) { c.key = 0x0e522; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e569; } // $E522 BNE $E569
       case 0x0e524: if (c.cycles >= end) { c.key = 0x0e524; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0208, c.y))); // $E524 LDA $0208,Y
       case 0x0e527: if (c.cycles >= end) { c.key = 0x0e527; return -1; } c.cycles += 2; c.p |= 0x01; // $E527 SEC
       case 0x0e528: if (c.cycles >= end) { c.key = 0x0e528; return -1; } c.cycles += 3; c.sbc(ram[0x05]); // $E528 SBC $05
       case 0x0e52a: if (c.cycles >= end) { c.key = 0x0e52a; return -1; } c.cycles += 2; c.cmp(c.a, 0x09); // $E52A CMP #$09
-      case 0x0e52c: if (c.cycles >= end) { c.key = 0x0e52c; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e569; } // $E52C BCS $E569
+      case 0x0e52c: if (c.cycles >= end) { c.key = 0x0e52c; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e569; } // $E52C BCS $E569
       case 0x0e52e: if (c.cycles >= end) { c.key = 0x0e52e; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0202, c.y))); // $E52E LDA $0202,Y
       case 0x0e531: if (c.cycles >= end) { c.key = 0x0e531; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E531 AND #$0F
       case 0x0e533: if (c.cycles >= end) { c.key = 0x0e533; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x20); // $E533 ORA #$20
@@ -4651,11 +4652,11 @@ function b118(c, bus, ram, rom, end, pc) {
       case 0x0e538: if (c.cycles >= end) { c.key = 0x0e538; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0206, c.y))); // $E538 LDA $0206,Y
       case 0x0e53b: if (c.cycles >= end) { c.key = 0x0e53b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E53B AND #$F0
       case 0x0e53d: if (c.cycles >= end) { c.key = 0x0e53d; return -1; } c.cycles += 2; c.cmp(c.a, 0xf0); // $E53D CMP #$F0
-      case 0x0e53f: if (c.cycles >= end) { c.key = 0x0e53f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e55e; continue; } // $E53F BEQ $E55E
+      case 0x0e53f: if (c.cycles >= end) { c.key = 0x0e53f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e55e; continue; } // $E53F BEQ $E55E
       case 0x0e541: if (c.cycles >= end) { c.key = 0x0e541; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0206, c.y))); // $E541 LDA $0206,Y
       case 0x0e544: if (c.cycles >= end) { c.key = 0x0e544; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E544 AND #$0F
       case 0x0e546: if (c.cycles >= end) { c.key = 0x0e546; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $E546 CMP #$0F
-      case 0x0e548: if (c.cycles >= end) { c.key = 0x0e548; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e55e; continue; } // $E548 BEQ $E55E
+      case 0x0e548: if (c.cycles >= end) { c.key = 0x0e548; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e55e; continue; } // $E548 BEQ $E55E
       case 0x0e54a: if (c.cycles >= end) { c.key = 0x0e54a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0206, c.y))); // $E54A LDA $0206,Y
       case 0x0e54d: if (c.cycles >= end) { c.key = 0x0e54d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E54D ORA #$10
       case 0x0e54f: if (c.cycles >= end) { c.key = 0x0e54f; return -1; } c.cycles += 5; c.write((0x0206 + c.y) & 0xffff, c.a); // $E54F STA $0206,Y
@@ -4682,7 +4683,7 @@ function b119(c, bus, ram, rom, end, pc) {
       case 0x0e56f: if (c.cycles >= end) { c.key = 0x0e56f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E56F LDA $05
       case 0x0e571: if (c.cycles >= end) { c.key = 0x0e571; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E571 AND #$0F
       case 0x0e573: if (c.cycles >= end) { c.key = 0x0e573; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $E573 CMP #$08
-      case 0x0e575: if (c.cycles >= end) { c.key = 0x0e575; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e5a4; } // $E575 BNE $E5A4
+      case 0x0e575: if (c.cycles >= end) { c.key = 0x0e575; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e5a4; } // $E575 BNE $E5A4
       case 0x0e577: if (c.cycles >= end) { c.key = 0x0e577; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x04]); // $E577 LDA $04
       case 0x0e579: if (c.cycles >= end) { c.key = 0x0e579; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $E579 LSR A
       case 0x0e57a: if (c.cycles >= end) { c.key = 0x0e57a; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $E57A LSR A
@@ -4706,7 +4707,7 @@ function b119(c, bus, ram, rom, end, pc) {
       case 0x0e597: if (c.cycles >= end) { c.key = 0x0e597; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $E597 LSR A
       case 0x0e598: if (c.cycles >= end) { c.key = 0x0e598; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $E598 LSR A
       case 0x0e599: if (c.cycles >= end) { c.key = 0x0e599; return -1; } c.cycles += 2; c.cmp(c.a, 0x09); // $E599 CMP #$09
-      case 0x0e59b: if (c.cycles >= end) { c.key = 0x0e59b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e5aa; } // $E59B BEQ $E5AA
+      case 0x0e59b: if (c.cycles >= end) { c.key = 0x0e59b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e5aa; } // $E59B BEQ $E5AA
       case 0x0e59d: if (c.cycles >= end) { c.key = 0x0e59d; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); return 0x0e59f; // $E59D CMP #$08
       default: return pc;
     }
@@ -4715,7 +4716,7 @@ function b119(c, bus, ram, rom, end, pc) {
 function b120(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0e59f: if (c.cycles >= end) { c.key = 0x0e59f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e5aa; continue; } // $E59F BEQ $E5AA
+      case 0x0e59f: if (c.cycles >= end) { c.key = 0x0e59f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e5aa; continue; } // $E59F BEQ $E5AA
       case 0x0e5a1: if (c.cycles >= end) { c.key = 0x0e5a1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E5A1 STA $F5
       case 0x0e5a3: if (c.cycles >= end) { c.key = 0x0e5a3; return -1; } c.cycles += 2;  // $E5A3 NOP
       case 0x0e5a4: if (c.cycles >= end) { c.key = 0x0e5a4; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $E5A4 LDA #$00
@@ -4735,17 +4736,17 @@ function b120(c, bus, ram, rom, end, pc) {
       case 0x0e5c4: if (c.cycles >= end) { c.key = 0x0e5c4; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E5C4 LDA $68,X
       case 0x0e5c6: if (c.cycles >= end) { c.key = 0x0e5c6; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xe0); // $E5C6 AND #$E0
       case 0x0e5c8: if (c.cycles >= end) { c.key = 0x0e5c8; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $E5C8 CMP #$40
-      case 0x0e5ca: if (c.cycles >= end) { c.key = 0x0e5ca; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e5d8; continue; } // $E5CA BEQ $E5D8
+      case 0x0e5ca: if (c.cycles >= end) { c.key = 0x0e5ca; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e5d8; continue; } // $E5CA BEQ $E5D8
       case 0x0e5cc: if (c.cycles >= end) { c.key = 0x0e5cc; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E5CC STA $F5
       case 0x1e5ce: if (c.cycles >= end) { c.key = 0x1e5ce; return -1; } c.cycles += 2;  // $E5CE* NOP
       case 0x0e5cf: if (c.cycles >= end) { c.key = 0x0e5cf; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $E5CF INX
       case 0x0e5d0: if (c.cycles >= end) { c.key = 0x0e5d0; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $E5D0 CPX #$06
-      case 0x0e5d2: if (c.cycles >= end) { c.key = 0x0e5d2; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e5c4; continue; } // $E5D2 BNE $E5C4
+      case 0x0e5d2: if (c.cycles >= end) { c.key = 0x0e5d2; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e5c4; continue; } // $E5D2 BNE $E5C4
       case 0x0e5d4: if (c.cycles >= end) { c.key = 0x0e5d4; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E5D4 RTS
       case 0x0e5d8: if (c.cycles >= end) { c.key = 0x0e5d8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xb1 + c.x) & 0xff)); // $E5D8 LDA $B1,X
       case 0x0e5da: if (c.cycles >= end) { c.key = 0x0e5da; return -1; } c.cycles += 3; ram[0x0d] = c.a; // $E5DA STA $0D
       case 0x1e5dc: if (c.cycles >= end) { c.key = 0x1e5dc; return -1; } c.cycles += 3; c.cmp(c.y, ram[0x0d]); // $E5DC* CPY $0D
-      case 0x0e5de: if (c.cycles >= end) { c.key = 0x0e5de; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e5cf; continue; } // $E5DE BNE $E5CF
+      case 0x0e5de: if (c.cycles >= end) { c.key = 0x0e5de; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e5cf; continue; } // $E5DE BNE $E5CF
       case 0x0e5e0: if (c.cycles >= end) { c.key = 0x0e5e0; return -1; } c.cycles += 3; ram[0x0e] = c.y; return 0x0e5e2; // $E5E0 STY $0E
       default: return pc;
     }
@@ -4772,16 +4773,16 @@ function b121(c, bus, ram, rom, end, pc) {
       case 0x1e5ff: if (c.cycles >= end) { c.key = 0x1e5ff; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E5FF* STA $F5
       case 0x0e601: if (c.cycles >= end) { c.key = 0x0e601; return -1; } c.cycles += 2;  // $E601 NOP
       case 0x0e602: if (c.cycles >= end) { c.key = 0x0e602; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E602 LDA $68,X
-      case 0x0e604: if (c.cycles >= end) { c.key = 0x0e604; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0e60d; continue; } // $E604 BMI $E60D
+      case 0x0e604: if (c.cycles >= end) { c.key = 0x0e604; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e60d; continue; } // $E604 BMI $E60D
       case 0x0e606: if (c.cycles >= end) { c.key = 0x0e606; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $E606 AND #$40
-      case 0x0e608: if (c.cycles >= end) { c.key = 0x0e608; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e639; } // $E608 BNE $E639
+      case 0x0e608: if (c.cycles >= end) { c.key = 0x0e608; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e639; } // $E608 BNE $E639
       case 0x0e60a: if (c.cycles >= end) { c.key = 0x0e60a; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E60A STA $F5
       case 0x0e60c: if (c.cycles >= end) { c.key = 0x0e60c; return -1; } c.cycles += 2;  // $E60C NOP
       case 0x0e60d: if (c.cycles >= end) { c.key = 0x0e60d; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $E60D INX
       case 0x0e60e: if (c.cycles >= end) { c.key = 0x0e60e; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $E60E CPX #$06
-      case 0x0e610: if (c.cycles >= end) { c.key = 0x0e610; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e602; continue; } // $E610 BNE $E602
+      case 0x0e610: if (c.cycles >= end) { c.key = 0x0e610; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e602; continue; } // $E610 BNE $E602
       case 0x0e612: if (c.cycles >= end) { c.key = 0x0e612; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xc9]); // $E612 LDX $C9
-      case 0x0e614: if (c.cycles >= end) { c.key = 0x0e614; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0e635; } // $E614 BEQ $E635
+      case 0x0e614: if (c.cycles >= end) { c.key = 0x0e614; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e635; } // $E614 BEQ $E635
       case 0x0e616: if (c.cycles >= end) { c.key = 0x0e616; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xe663, c.x))); // $E616 LDA $E663,X
       case 0x0e619: if (c.cycles >= end) { c.key = 0x0e619; return -1; } c.cycles += 6; c.push(0xe6); c.push(0x1b); return 0x1e98c; // $E619 JSR $E98C
       case 0x0e61c: if (c.cycles >= end) { c.key = 0x0e61c; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $E61C TYA
@@ -4808,7 +4809,7 @@ function b122(c, bus, ram, rom, end, pc) {
       case 0x0e639: if (c.cycles >= end) { c.key = 0x0e639; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xb1 + c.x) & 0xff)); // $E639 LDA $B1,X
       case 0x0e63b: if (c.cycles >= end) { c.key = 0x0e63b; return -1; } c.cycles += 3; ram[0x0d] = c.a; // $E63B STA $0D
       case 0x0e63d: if (c.cycles >= end) { c.key = 0x0e63d; return -1; } c.cycles += 3; c.cmp(c.y, ram[0x0d]); // $E63D CPY $0D
-      case 0x0e63f: if (c.cycles >= end) { c.key = 0x0e63f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e60d; } // $E63F BNE $E60D
+      case 0x0e63f: if (c.cycles >= end) { c.key = 0x0e63f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e60d; } // $E63F BNE $E60D
       case 0x0e641: if (c.cycles >= end) { c.key = 0x0e641; return -1; } c.cycles += 5; ram[0xc9] = c.setNZ((ram[0xc9] + 1) & 0xff); // $E641 INC $C9
       case 0x0e643: if (c.cycles >= end) { c.key = 0x0e643; return -1; } c.cycles += 3; ram[0xca] = c.x; // $E643 STX $CA
       case 0x0e645: if (c.cycles >= end) { c.key = 0x0e645; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E645 LDA $68,X
@@ -4841,12 +4842,12 @@ function b123(c, bus, ram, rom, end, pc) {
       case 0x0e67f: if (c.cycles >= end) { c.key = 0x0e67f; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E67F STA $F5
       case 0x0e681: if (c.cycles >= end) { c.key = 0x0e681; return -1; } c.cycles += 2;  // $E681 NOP
       case 0x0e682: if (c.cycles >= end) { c.key = 0x0e682; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E682 LDA $68,X
-      case 0x0e684: if (c.cycles >= end) { c.key = 0x0e684; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0e692; continue; } // $E684 BPL $E692
+      case 0x0e684: if (c.cycles >= end) { c.key = 0x0e684; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e692; continue; } // $E684 BPL $E692
       case 0x0e686: if (c.cycles >= end) { c.key = 0x0e686; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E686 STA $F5
       case 0x0e688: if (c.cycles >= end) { c.key = 0x0e688; return -1; } c.cycles += 2;  // $E688 NOP
       case 0x0e689: if (c.cycles >= end) { c.key = 0x0e689; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $E689 INX
       case 0x0e68a: if (c.cycles >= end) { c.key = 0x0e68a; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $E68A CPX #$06
-      case 0x0e68c: if (c.cycles >= end) { c.key = 0x0e68c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e682; continue; } // $E68C BNE $E682
+      case 0x0e68c: if (c.cycles >= end) { c.key = 0x0e68c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e682; continue; } // $E68C BNE $E682
       case 0x0e68e: if (c.cycles >= end) { c.key = 0x0e68e; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E68E RTS
       case 0x0e692: if (c.cycles >= end) { c.key = 0x0e692; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $E692 TXA
       case 0x0e693: if (c.cycles >= end) { c.key = 0x0e693; return -1; } c.cycles += 2; c.a = c.asl(c.a); // $E693 ASL A
@@ -4856,10 +4857,10 @@ function b123(c, bus, ram, rom, end, pc) {
       case 0x0e699: if (c.cycles >= end) { c.key = 0x0e699; return -1; } c.cycles += 2; c.p &= ~0x01; // $E699 CLC
       case 0x0e69a: if (c.cycles >= end) { c.key = 0x0e69a; return -1; } c.cycles += 2; c.adc(0x0c); // $E69A ADC #$0C
       case 0x0e69c: if (c.cycles >= end) { c.key = 0x0e69c; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E69C CMP $03
-      case 0x0e69e: if (c.cycles >= end) { c.key = 0x0e69e; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0e689; continue; } // $E69E BCC $E689
+      case 0x0e69e: if (c.cycles >= end) { c.key = 0x0e69e; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e689; continue; } // $E69E BCC $E689
       case 0x0e6a0: if (c.cycles >= end) { c.key = 0x0e6a0; return -1; } c.cycles += 2; c.sbc(0x18); // $E6A0 SBC #$18
       case 0x0e6a2: if (c.cycles >= end) { c.key = 0x0e6a2; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E6A2 CMP $03
-      case 0x0e6a4: if (c.cycles >= end) { c.key = 0x0e6a4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0e689; continue; } // $E6A4 BCS $E689
+      case 0x0e6a4: if (c.cycles >= end) { c.key = 0x0e6a4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e689; continue; } // $E6A4 BCS $E689
       case 0x0e6a6: if (c.cycles >= end) { c.key = 0x0e6a6; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1803, c.y))); // $E6A6 LDA $1803,Y
       case 0x0e6a9: if (c.cycles >= end) { c.key = 0x0e6a9; return -1; } c.cycles += 2; c.p &= ~0x01; // $E6A9 CLC
       case 0x0e6aa: if (c.cycles >= end) { c.key = 0x0e6aa; return -1; } c.cycles += 2; c.adc(0x0c); // $E6AA ADC #$0C
@@ -4871,17 +4872,17 @@ function b123(c, bus, ram, rom, end, pc) {
 function b124(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0e6ae: if (c.cycles >= end) { c.key = 0x0e6ae; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e689; } // $E6AE BCC $E689
+      case 0x0e6ae: if (c.cycles >= end) { c.key = 0x0e6ae; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e689; } // $E6AE BCC $E689
       case 0x0e6b0: if (c.cycles >= end) { c.key = 0x0e6b0; return -1; } c.cycles += 2; c.sbc(0x18); // $E6B0 SBC #$18
       case 0x0e6b2: if (c.cycles >= end) { c.key = 0x0e6b2; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E6B2 CMP $04
-      case 0x0e6b4: if (c.cycles >= end) { c.key = 0x0e6b4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e689; } // $E6B4 BCS $E689
+      case 0x0e6b4: if (c.cycles >= end) { c.key = 0x0e6b4; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e689; } // $E6B4 BCS $E689
       case 0x0e6b6: if (c.cycles >= end) { c.key = 0x0e6b6; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E6B6 LDA $68,X
       case 0x0e6b8: if (c.cycles >= end) { c.key = 0x0e6b8; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x10); // $E6B8 ORA #$10
       case 0x0e6ba: if (c.cycles >= end) { c.key = 0x0e6ba; return -1; } c.cycles += 4; c.write((0x68 + c.x) & 0xff, c.a); // $E6BA STA $68,X
       case 0x0e6bc: if (c.cycles >= end) { c.key = 0x0e6bc; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0x1f]); // $E6BC LDY $1F
       case 0x0e6be: if (c.cycles >= end) { c.key = 0x0e6be; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0061, c.y))); // $E6BE LDA $0061,Y
       case 0x0e6c1: if (c.cycles >= end) { c.key = 0x0e6c1; return -1; } c.cycles += 2; c.cmp(c.a, 0x08); // $E6C1 CMP #$08
-      case 0x0e6c3: if (c.cycles >= end) { c.key = 0x0e6c3; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0e6c7; continue; } // $E6C3 BCC $E6C7
+      case 0x0e6c3: if (c.cycles >= end) { c.key = 0x0e6c3; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e6c7; continue; } // $E6C3 BCC $E6C7
       case 0x0e6c5: if (c.cycles >= end) { c.key = 0x0e6c5; return -1; } c.cycles += 2; c.a = c.setNZ(0x08); // $E6C5 LDA #$08
       case 0x0e6c7: if (c.cycles >= end) { c.key = 0x0e6c7; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $E6C7 TAY
       case 0x0e6c8: if (c.cycles >= end) { c.key = 0x0e6c8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xe6d4, c.y))); // $E6C8 LDA $E6D4,Y
@@ -4894,14 +4895,14 @@ function b124(c, bus, ram, rom, end, pc) {
       case 0x0e6e2: if (c.cycles >= end) { c.key = 0x0e6e2; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E6E2 STA $F5
       case 0x0e6e4: if (c.cycles >= end) { c.key = 0x0e6e4; return -1; } c.cycles += 2;  // $E6E4 NOP
       case 0x0e6e5: if (c.cycles >= end) { c.key = 0x0e6e5; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E6E5 LDA $68,X
-      case 0x0e6e7: if (c.cycles >= end) { c.key = 0x0e6e7; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0e6f0; continue; } // $E6E7 BMI $E6F0
+      case 0x0e6e7: if (c.cycles >= end) { c.key = 0x0e6e7; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e6f0; continue; } // $E6E7 BMI $E6F0
       case 0x0e6e9: if (c.cycles >= end) { c.key = 0x0e6e9; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E6E9 AND #$10
-      case 0x0e6eb: if (c.cycles >= end) { c.key = 0x0e6eb; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e6f9; } // $E6EB BNE $E6F9
+      case 0x0e6eb: if (c.cycles >= end) { c.key = 0x0e6eb; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e6f9; } // $E6EB BNE $E6F9
       case 0x0e6ed: if (c.cycles >= end) { c.key = 0x0e6ed; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E6ED STA $F5
       case 0x0e6ef: if (c.cycles >= end) { c.key = 0x0e6ef; return -1; } c.cycles += 2;  // $E6EF NOP
       case 0x0e6f0: if (c.cycles >= end) { c.key = 0x0e6f0; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $E6F0 INX
       case 0x0e6f1: if (c.cycles >= end) { c.key = 0x0e6f1; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $E6F1 CPX #$06
-      case 0x0e6f3: if (c.cycles >= end) { c.key = 0x0e6f3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e6e5; continue; } // $E6F3 BNE $E6E5
+      case 0x0e6f3: if (c.cycles >= end) { c.key = 0x0e6f3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e6e5; continue; } // $E6F3 BNE $E6E5
       case 0x0e6f5: if (c.cycles >= end) { c.key = 0x0e6f5; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E6F5 RTS
       default: return pc;
     }
@@ -4919,13 +4920,13 @@ function b125(c, bus, ram, rom, end, pc) {
       case 0x0e705: if (c.cycles >= end) { c.key = 0x0e705; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 2; return 0x0e6f0; } // $E705 BNE $E6F0
       case 0x0e707: if (c.cycles >= end) { c.key = 0x0e707; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x99 + c.x) & 0xff)); // $E707 LDA $99,X
       case 0x0e709: if (c.cycles >= end) { c.key = 0x0e709; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E709 AND #$10
-      case 0x0e70b: if (c.cycles >= end) { c.key = 0x0e70b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e71c; continue; } // $E70B BEQ $E71C
+      case 0x0e70b: if (c.cycles >= end) { c.key = 0x0e70b; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e71c; continue; } // $E70B BEQ $E71C
       case 0x0e70d: if (c.cycles >= end) { c.key = 0x0e70d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E70D LDA $68,X
       case 0x0e70f: if (c.cycles >= end) { c.key = 0x0e70f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $E70F AND #$03
       case 0x0e711: if (c.cycles >= end) { c.key = 0x0e711; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $E711 TAY
       case 0x0e712: if (c.cycles >= end) { c.key = 0x0e712; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xe74c, c.y))); // $E712 LDA $E74C,Y
       case 0x0e715: if (c.cycles >= end) { c.key = 0x0e715; return -1; } c.cycles += 3; ram[0x03] = c.a; // $E715 STA $03
-      case 0x1e717: if (c.cycles >= end) { c.key = 0x1e717; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e729; continue; } // $E717* BNE $E729
+      case 0x1e717: if (c.cycles >= end) { c.key = 0x1e717; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e729; continue; } // $E717* BNE $E729
       case 0x0e719: if (c.cycles >= end) { c.key = 0x0e719; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E719 STA $F5
       case 0x0e71b: if (c.cycles >= end) { c.key = 0x0e71b; return -1; } c.cycles += 2;  // $E71B NOP
       case 0x0e71c: if (c.cycles >= end) { c.key = 0x0e71c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E71C LDA $68,X
@@ -4959,7 +4960,7 @@ function b126(c, bus, ram, rom, end, pc) {
       case 0x1e746: if (c.cycles >= end) { c.key = 0x1e746; return -1; } c.cycles += 3; return 0x0e729; // $E746* JMP $E729
       case 0x0e760: if (c.cycles >= end) { c.key = 0x0e760; return -1; } c.cycles += 2;  // $E760 NOP
       case 0x0e761: if (c.cycles >= end) { c.key = 0x0e761; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $E761 LDA $6F
-      case 0x0e763: if (c.cycles >= end) { c.key = 0x0e763; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0e783; continue; } // $E763 BMI $E783
+      case 0x0e763: if (c.cycles >= end) { c.key = 0x0e763; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e783; continue; } // $E763 BMI $E783
       case 0x0e765: if (c.cycles >= end) { c.key = 0x0e765; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181e)); // $E765 LDA $181E
       case 0x0e768: if (c.cycles >= end) { c.key = 0x0e768; return -1; } c.cycles += 3; ram[0x03] = c.a; // $E768 STA $03
       case 0x0e76a: if (c.cycles >= end) { c.key = 0x0e76a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181f)); // $E76A LDA $181F
@@ -4968,17 +4969,17 @@ function b126(c, bus, ram, rom, end, pc) {
       case 0x0e771: if (c.cycles >= end) { c.key = 0x0e771; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E771 STA $F5
       case 0x0e773: if (c.cycles >= end) { c.key = 0x0e773; return -1; } c.cycles += 2;  // $E773 NOP
       case 0x0e774: if (c.cycles >= end) { c.key = 0x0e774; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $E774 LDA $68,X
-      case 0x0e776: if (c.cycles >= end) { c.key = 0x0e776; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0e787; continue; } // $E776 BPL $E787
+      case 0x0e776: if (c.cycles >= end) { c.key = 0x0e776; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e787; continue; } // $E776 BPL $E787
       case 0x0e778: if (c.cycles >= end) { c.key = 0x0e778; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E778 STA $F5
       case 0x0e77a: if (c.cycles >= end) { c.key = 0x0e77a; return -1; } c.cycles += 2;  // $E77A NOP
       case 0x0e77b: if (c.cycles >= end) { c.key = 0x0e77b; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $E77B INX
       case 0x0e77c: if (c.cycles >= end) { c.key = 0x0e77c; return -1; } c.cycles += 2; c.cmp(c.x, 0x06); // $E77C CPX #$06
-      case 0x0e77e: if (c.cycles >= end) { c.key = 0x0e77e; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e774; continue; } // $E77E BNE $E774
+      case 0x0e77e: if (c.cycles >= end) { c.key = 0x0e77e; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e774; continue; } // $E77E BNE $E774
       case 0x0e780: if (c.cycles >= end) { c.key = 0x0e780; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E780 STA $F5
       case 0x0e782: if (c.cycles >= end) { c.key = 0x0e782; return -1; } c.cycles += 2;  // $E782 NOP
       case 0x0e783: if (c.cycles >= end) { c.key = 0x0e783; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E783 RTS
       case 0x0e787: if (c.cycles >= end) { c.key = 0x0e787; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x70); // $E787 AND #$70
-      case 0x0e789: if (c.cycles >= end) { c.key = 0x0e789; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e77b; continue; } // $E789 BNE $E77B
+      case 0x0e789: if (c.cycles >= end) { c.key = 0x0e789; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e77b; continue; } // $E789 BNE $E77B
       case 0x0e78b: if (c.cycles >= end) { c.key = 0x0e78b; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $E78B TXA
       case 0x0e78c: if (c.cycles >= end) { c.key = 0x0e78c; return -1; } c.cycles += 2; c.a = c.asl(c.a); return 0x0e78d; // $E78C ASL A
       default: return pc;
@@ -4994,18 +4995,18 @@ function b127(c, bus, ram, rom, end, pc) {
       case 0x0e792: if (c.cycles >= end) { c.key = 0x0e792; return -1; } c.cycles += 2; c.p &= ~0x01; // $E792 CLC
       case 0x0e793: if (c.cycles >= end) { c.key = 0x0e793; return -1; } c.cycles += 2; c.adc(0x08); // $E793 ADC #$08
       case 0x0e795: if (c.cycles >= end) { c.key = 0x0e795; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E795 CMP $03
-      case 0x0e797: if (c.cycles >= end) { c.key = 0x0e797; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e77b; } // $E797 BCC $E77B
+      case 0x0e797: if (c.cycles >= end) { c.key = 0x0e797; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e77b; } // $E797 BCC $E77B
       case 0x0e799: if (c.cycles >= end) { c.key = 0x0e799; return -1; } c.cycles += 2; c.sbc(0x10); // $E799 SBC #$10
       case 0x0e79b: if (c.cycles >= end) { c.key = 0x0e79b; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E79B CMP $03
-      case 0x0e79d: if (c.cycles >= end) { c.key = 0x0e79d; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e77b; } // $E79D BCS $E77B
+      case 0x0e79d: if (c.cycles >= end) { c.key = 0x0e79d; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e77b; } // $E79D BCS $E77B
       case 0x0e79f: if (c.cycles >= end) { c.key = 0x0e79f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1803, c.y))); // $E79F LDA $1803,Y
       case 0x0e7a2: if (c.cycles >= end) { c.key = 0x0e7a2; return -1; } c.cycles += 2; c.p &= ~0x01; // $E7A2 CLC
       case 0x0e7a3: if (c.cycles >= end) { c.key = 0x0e7a3; return -1; } c.cycles += 2; c.adc(0x04); // $E7A3 ADC #$04
       case 0x0e7a5: if (c.cycles >= end) { c.key = 0x0e7a5; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E7A5 CMP $04
-      case 0x0e7a7: if (c.cycles >= end) { c.key = 0x0e7a7; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e77b; } // $E7A7 BCC $E77B
+      case 0x0e7a7: if (c.cycles >= end) { c.key = 0x0e7a7; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e77b; } // $E7A7 BCC $E77B
       case 0x0e7a9: if (c.cycles >= end) { c.key = 0x0e7a9; return -1; } c.cycles += 2; c.sbc(0x0d); // $E7A9 SBC #$0D
       case 0x0e7ab: if (c.cycles >= end) { c.key = 0x0e7ab; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E7AB CMP $04
-      case 0x0e7ad: if (c.cycles >= end) { c.key = 0x0e7ad; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e77b; } // $E7AD BCS $E77B
+      case 0x0e7ad: if (c.cycles >= end) { c.key = 0x0e7ad; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e77b; } // $E7AD BCS $E77B
       case 0x0e7af: if (c.cycles >= end) { c.key = 0x0e7af; return -1; } c.cycles += 2; c.a = c.setNZ(0x10); // $E7AF LDA #$10
       case 0x0e7b1: if (c.cycles >= end) { c.key = 0x0e7b1; return -1; } c.cycles += 6; c.push(0xe7); c.push(0xb3); return 0x0ea5d; // $E7B1 JSR $EA5D
       case 0x0e7b4: if (c.cycles >= end) { c.key = 0x0e7b4; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $E7B4 LDA $6F
@@ -5030,23 +5031,23 @@ function b128(c, bus, ram, rom, end, pc) {
       case 0x0e7cf: if (c.cycles >= end) { c.key = 0x0e7cf; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x65 + c.x) & 0xff)); // $E7CF LDA $65,X
       case 0x0e7d1: if (c.cycles >= end) { c.key = 0x0e7d1; return -1; } c.cycles += 3; ram[0x05] = c.a; // $E7D1 STA $05
       case 0x0e7d3: if (c.cycles >= end) { c.key = 0x0e7d3; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe815, c.y))); // $E7D3 CMP $E815,Y
-      case 0x0e7d6: if (c.cycles >= end) { c.key = 0x0e7d6; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e7db; continue; } // $E7D6 BNE $E7DB
+      case 0x0e7d6: if (c.cycles >= end) { c.key = 0x0e7d6; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e7db; continue; } // $E7D6 BNE $E7DB
       case 0x0e7d8: if (c.cycles >= end) { c.key = 0x0e7d8; return -1; } c.cycles += 6; c.push(0xe7); c.push(0xda); return 0x0e0fb; // $E7D8 JSR $E0FB
       case 0x0e7db: if (c.cycles >= end) { c.key = 0x0e7db; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E7DB LDA $05
       case 0x0e7dd: if (c.cycles >= end) { c.key = 0x0e7dd; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe81b, c.y))); // $E7DD CMP $E81B,Y
-      case 0x0e7e0: if (c.cycles >= end) { c.key = 0x0e7e0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e7e5; continue; } // $E7E0 BNE $E7E5
+      case 0x0e7e0: if (c.cycles >= end) { c.key = 0x0e7e0; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e7e5; continue; } // $E7E0 BNE $E7E5
       case 0x0e7e2: if (c.cycles >= end) { c.key = 0x0e7e2; return -1; } c.cycles += 6; c.push(0xe7); c.push(0xe4); return 0x0e0fb; // $E7E2 JSR $E0FB
       case 0x0e7e5: if (c.cycles >= end) { c.key = 0x0e7e5; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E7E5 LDA $05
       case 0x0e7e7: if (c.cycles >= end) { c.key = 0x0e7e7; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe821, c.y))); // $E7E7 CMP $E821,Y
-      case 0x0e7ea: if (c.cycles >= end) { c.key = 0x0e7ea; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e7ef; continue; } // $E7EA BNE $E7EF
+      case 0x0e7ea: if (c.cycles >= end) { c.key = 0x0e7ea; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e7ef; continue; } // $E7EA BNE $E7EF
       case 0x0e7ec: if (c.cycles >= end) { c.key = 0x0e7ec; return -1; } c.cycles += 6; c.push(0xe7); c.push(0xee); return 0x0e0fb; // $E7EC JSR $E0FB
       case 0x0e7ef: if (c.cycles >= end) { c.key = 0x0e7ef; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E7EF LDA $05
       case 0x0e7f1: if (c.cycles >= end) { c.key = 0x0e7f1; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe827, c.y))); // $E7F1 CMP $E827,Y
-      case 0x0e7f4: if (c.cycles >= end) { c.key = 0x0e7f4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e7f9; continue; } // $E7F4 BNE $E7F9
+      case 0x0e7f4: if (c.cycles >= end) { c.key = 0x0e7f4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e7f9; continue; } // $E7F4 BNE $E7F9
       case 0x0e7f6: if (c.cycles >= end) { c.key = 0x0e7f6; return -1; } c.cycles += 6; c.push(0xe7); c.push(0xf8); return 0x0e0fb; // $E7F6 JSR $E0FB
       case 0x0e7f9: if (c.cycles >= end) { c.key = 0x0e7f9; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x05]); // $E7F9 LDA $05
       case 0x0e7fb: if (c.cycles >= end) { c.key = 0x0e7fb; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe82d, c.y))); // $E7FB CMP $E82D,Y
-      case 0x0e7fe: if (c.cycles >= end) { c.key = 0x0e7fe; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0e814; continue; } // $E7FE BCC $E814
+      case 0x0e7fe: if (c.cycles >= end) { c.key = 0x0e7fe; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e814; continue; } // $E7FE BCC $E814
       case 0x0e800: if (c.cycles >= end) { c.key = 0x0e800; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $E800 LDA $6F
       case 0x0e802: if (c.cycles >= end) { c.key = 0x0e802; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E802 AND #$0F
       case 0x0e804: if (c.cycles >= end) { c.key = 0x0e804; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x80); // $E804 ORA #$80
@@ -5069,25 +5070,25 @@ function b129(c, bus, ram, rom, end, pc) {
       case 0x0e836: if (c.cycles >= end) { c.key = 0x0e836; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); // $E836 LDA $6F
       case 0x0e838: if (c.cycles >= end) { c.key = 0x0e838; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E838 AND #$F0
       case 0x0e83a: if (c.cycles >= end) { c.key = 0x0e83a; return -1; } c.cycles += 2; c.cmp(c.a, 0x80); // $E83A CMP #$80
-      case 0x0e83c: if (c.cycles >= end) { c.key = 0x0e83c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e869; continue; } // $E83C BNE $E869
+      case 0x0e83c: if (c.cycles >= end) { c.key = 0x0e83c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e869; continue; } // $E83C BNE $E869
       case 0x0e83e: if (c.cycles >= end) { c.key = 0x0e83e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xa0]); // $E83E LDA $A0
-      case 0x0e840: if (c.cycles >= end) { c.key = 0x0e840; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e864; continue; } // $E840 BEQ $E864
+      case 0x0e840: if (c.cycles >= end) { c.key = 0x0e840; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e864; continue; } // $E840 BEQ $E864
       case 0x0e842: if (c.cycles >= end) { c.key = 0x0e842; return -1; } c.cycles += 5; ram[0xa0] = c.setNZ((ram[0xa0] - 1) & 0xff); // $E842 DEC $A0
       case 0x0e844: if (c.cycles >= end) { c.key = 0x0e844; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xa0]); // $E844 LDA $A0
       case 0x0e846: if (c.cycles >= end) { c.key = 0x0e846; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $E846 AND #$0F
-      case 0x0e848: if (c.cycles >= end) { c.key = 0x0e848; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e869; continue; } // $E848 BNE $E869
+      case 0x0e848: if (c.cycles >= end) { c.key = 0x0e848; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e869; continue; } // $E848 BNE $E869
       case 0x0e84a: if (c.cycles >= end) { c.key = 0x0e84a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xa0]); // $E84A LDA $A0
       case 0x0e84c: if (c.cycles >= end) { c.key = 0x0e84c; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $E84C AND #$10
-      case 0x0e84e: if (c.cycles >= end) { c.key = 0x0e84e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e857; continue; } // $E84E BEQ $E857
+      case 0x0e84e: if (c.cycles >= end) { c.key = 0x0e84e; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e857; continue; } // $E84E BEQ $E857
       case 0x0e850: if (c.cycles >= end) { c.key = 0x0e850; return -1; } c.cycles += 2; c.a = c.setNZ(0x47); // $E850 LDA #$47
-      case 0x0e852: if (c.cycles >= end) { c.key = 0x0e852; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e85c; continue; } // $E852 BNE $E85C
+      case 0x0e852: if (c.cycles >= end) { c.key = 0x0e852; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e85c; continue; } // $E852 BNE $E85C
       case 0x0e854: if (c.cycles >= end) { c.key = 0x0e854; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E854 STA $F5
       case 0x0e856: if (c.cycles >= end) { c.key = 0x0e856; return -1; } c.cycles += 2;  // $E856 NOP
       case 0x0e857: if (c.cycles >= end) { c.key = 0x0e857; return -1; } c.cycles += 2; c.a = c.setNZ(0x4c); // $E857 LDA #$4C
       case 0x0e859: if (c.cycles >= end) { c.key = 0x0e859; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E859 STA $F5
       case 0x0e85b: if (c.cycles >= end) { c.key = 0x0e85b; return -1; } c.cycles += 2;  // $E85B NOP
       case 0x0e85c: if (c.cycles >= end) { c.key = 0x0e85c; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $E85C STA $181D
-      case 0x0e85f: if (c.cycles >= end) { c.key = 0x0e85f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e869; continue; } // $E85F BNE $E869
+      case 0x0e85f: if (c.cycles >= end) { c.key = 0x0e85f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e869; continue; } // $E85F BNE $E869
       case 0x0e861: if (c.cycles >= end) { c.key = 0x0e861; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E861 STA $F5
       case 0x0e863: if (c.cycles >= end) { c.key = 0x0e863; return -1; } c.cycles += 2;  // $E863 NOP
       case 0x0e864: if (c.cycles >= end) { c.key = 0x0e864; return -1; } c.cycles += 5; ram[0xc5] = c.setNZ((ram[0xc5] + 1) & 0xff); // $E864 INC $C5
@@ -5096,7 +5097,7 @@ function b129(c, bus, ram, rom, end, pc) {
       case 0x0e869: if (c.cycles >= end) { c.key = 0x0e869; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E869 RTS
       case 0x0e86c: if (c.cycles >= end) { c.key = 0x0e86c; return -1; } c.cycles += 2;  // $E86C NOP
       case 0x0e86d: if (c.cycles >= end) { c.key = 0x0e86d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xc6]); // $E86D LDA $C6
-      case 0x0e86f: if (c.cycles >= end) { c.key = 0x0e86f; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; return 0x0e8b7; } // $E86F BMI $E8B7
+      case 0x0e86f: if (c.cycles >= end) { c.key = 0x0e86f; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e8b7; } // $E86F BMI $E8B7
       case 0x0e871: if (c.cycles >= end) { c.key = 0x0e871; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x6f]); return 0x0e873; // $E871 LDA $6F
       default: return pc;
     }
@@ -5107,30 +5108,30 @@ function b130(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0e873: if (c.cycles >= end) { c.key = 0x0e873; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $E873 AND #$F0
       case 0x0e875: if (c.cycles >= end) { c.key = 0x0e875; return -1; } c.cycles += 2; c.cmp(c.a, 0xf0); // $E875 CMP #$F0
-      case 0x0e877: if (c.cycles >= end) { c.key = 0x0e877; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e87d; continue; } // $E877 BEQ $E87D
+      case 0x0e877: if (c.cycles >= end) { c.key = 0x0e877; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e87d; continue; } // $E877 BEQ $E87D
       case 0x0e879: if (c.cycles >= end) { c.key = 0x0e879; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E879 RTS
       case 0x0e87d: if (c.cycles >= end) { c.key = 0x0e87d; return -1; } c.cycles += 2; c.x = c.setNZ(0x1b); // $E87D LDX #$1B
       case 0x0e87f: if (c.cycles >= end) { c.key = 0x0e87f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xa0]); // $E87F LDA $A0
       case 0x0e881: if (c.cycles >= end) { c.key = 0x0e881; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E881 STA $F5
       case 0x0e883: if (c.cycles >= end) { c.key = 0x0e883; return -1; } c.cycles += 2;  // $E883 NOP
       case 0x0e884: if (c.cycles >= end) { c.key = 0x0e884; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0xe8b8, c.x))); // $E884 CMP $E8B8,X
-      case 0x0e887: if (c.cycles >= end) { c.key = 0x0e887; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0e892; continue; } // $E887 BEQ $E892
+      case 0x0e887: if (c.cycles >= end) { c.key = 0x0e887; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e892; continue; } // $E887 BEQ $E892
       case 0x0e889: if (c.cycles >= end) { c.key = 0x0e889; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $E889 DEX
-      case 0x0e88a: if (c.cycles >= end) { c.key = 0x0e88a; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0e884; continue; } // $E88A BPL $E884
+      case 0x0e88a: if (c.cycles >= end) { c.key = 0x0e88a; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e884; continue; } // $E88A BPL $E884
       case 0x0e88c: if (c.cycles >= end) { c.key = 0x0e88c; return -1; } c.cycles += 5; ram[0xa0] = c.setNZ((ram[0xa0] - 1) & 0xff); // $E88C DEC $A0
       case 0x0e88e: if (c.cycles >= end) { c.key = 0x0e88e; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $E88E RTS
       case 0x0e892: if (c.cycles >= end) { c.key = 0x0e892; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xe8d4, c.x))); // $E892 LDA $E8D4,X
       case 0x0e895: if (c.cycles >= end) { c.key = 0x0e895; return -1; } c.cycles += 4; c.write(0x181d, c.a); // $E895 STA $181D
       case 0x0e898: if (c.cycles >= end) { c.key = 0x0e898; return -1; } c.cycles += 5; ram[0xa0] = c.setNZ((ram[0xa0] - 1) & 0xff); // $E898 DEC $A0
       case 0x0e89a: if (c.cycles >= end) { c.key = 0x0e89a; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $E89A TXA
-      case 0x0e89b: if (c.cycles >= end) { c.key = 0x0e89b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e8ab; continue; } // $E89B BNE $E8AB
+      case 0x0e89b: if (c.cycles >= end) { c.key = 0x0e89b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e8ab; continue; } // $E89B BNE $E8AB
       case 0x0e89d: if (c.cycles >= end) { c.key = 0x0e89d; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $E89D LDX $1F
       case 0x0e89f: if (c.cycles >= end) { c.key = 0x0e89f; return -1; } c.cycles += 6; c.rmw((0x29 + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $E89F DEC $29,X
       case 0x0e8a1: if (c.cycles >= end) { c.key = 0x0e8a1; return -1; } c.cycles += 2; c.a = c.setNZ(0xff); // $E8A1 LDA #$FF
       case 0x0e8a3: if (c.cycles >= end) { c.key = 0x0e8a3; return -1; } c.cycles += 3; ram[0xc6] = c.a; // $E8A3 STA $C6
       case 0x0e8a5: if (c.cycles >= end) { c.key = 0x0e8a5; return -1; } c.cycles += 3; pc = 0x0e8b7; continue; // $E8A5 JMP $E8B7
       case 0x0e8ab: if (c.cycles >= end) { c.key = 0x0e8ab; return -1; } c.cycles += 2; c.cmp(c.x, 0x18); // $E8AB CPX #$18
-      case 0x0e8ad: if (c.cycles >= end) { c.key = 0x0e8ad; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e8b7; continue; } // $E8AD BNE $E8B7
+      case 0x0e8ad: if (c.cycles >= end) { c.key = 0x0e8ad; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e8b7; continue; } // $E8AD BNE $E8B7
       case 0x0e8af: if (c.cycles >= end) { c.key = 0x0e8af; return -1; } c.cycles += 2; c.a = c.setNZ(0x10); // $E8AF LDA #$10
       case 0x0e8b1: if (c.cycles >= end) { c.key = 0x0e8b1; return -1; } c.cycles += 6; c.push(0xe8); c.push(0xb3); return 0x0ea5d; // $E8B1 JSR $EA5D
       case 0x0e8b4: if (c.cycles >= end) { c.key = 0x0e8b4; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E8B4 STA $F5
@@ -5155,18 +5156,18 @@ function b131(c, bus, ram, rom, end, pc) {
       case 0x0e906: if (c.cycles >= end) { c.key = 0x0e906; return -1; } c.cycles += 2; c.p &= ~0x01; // $E906 CLC
       case 0x0e907: if (c.cycles >= end) { c.key = 0x0e907; return -1; } c.cycles += 2; c.adc(0x08); // $E907 ADC #$08
       case 0x0e909: if (c.cycles >= end) { c.key = 0x0e909; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E909 CMP $03
-      case 0x0e90b: if (c.cycles >= end) { c.key = 0x0e90b; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e971; } // $E90B BCC $E971
+      case 0x0e90b: if (c.cycles >= end) { c.key = 0x0e90b; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e971; } // $E90B BCC $E971
       case 0x0e90d: if (c.cycles >= end) { c.key = 0x0e90d; return -1; } c.cycles += 2; c.sbc(0x10); // $E90D SBC #$10
       case 0x0e90f: if (c.cycles >= end) { c.key = 0x0e90f; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $E90F CMP $03
-      case 0x0e911: if (c.cycles >= end) { c.key = 0x0e911; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e971; } // $E911 BCS $E971
+      case 0x0e911: if (c.cycles >= end) { c.key = 0x0e911; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e971; } // $E911 BCS $E971
       case 0x0e913: if (c.cycles >= end) { c.key = 0x0e913; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x181f)); // $E913 LDA $181F
       case 0x0e916: if (c.cycles >= end) { c.key = 0x0e916; return -1; } c.cycles += 2; c.p &= ~0x01; // $E916 CLC
       case 0x0e917: if (c.cycles >= end) { c.key = 0x0e917; return -1; } c.cycles += 2; c.adc(0x08); // $E917 ADC #$08
       case 0x0e919: if (c.cycles >= end) { c.key = 0x0e919; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E919 CMP $04
-      case 0x0e91b: if (c.cycles >= end) { c.key = 0x0e91b; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e971; } // $E91B BCC $E971
+      case 0x0e91b: if (c.cycles >= end) { c.key = 0x0e91b; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e971; } // $E91B BCC $E971
       case 0x0e91d: if (c.cycles >= end) { c.key = 0x0e91d; return -1; } c.cycles += 2; c.sbc(0x10); // $E91D SBC #$10
       case 0x0e91f: if (c.cycles >= end) { c.key = 0x0e91f; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $E91F CMP $04
-      case 0x0e921: if (c.cycles >= end) { c.key = 0x0e921; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0e971; } // $E921 BCS $E971
+      case 0x0e921: if (c.cycles >= end) { c.key = 0x0e921; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e971; } // $E921 BCS $E971
       case 0x0e923: if (c.cycles >= end) { c.key = 0x0e923; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $E923 TXA
       case 0x0e924: if (c.cycles >= end) { c.key = 0x0e924; return -1; } c.cycles += 2; c.a = c.asl(c.a); // $E924 ASL A
       case 0x0e925: if (c.cycles >= end) { c.key = 0x0e925; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $E925 TAY
@@ -5228,7 +5229,7 @@ function b133(c, bus, ram, rom, end, pc) {
       case 0x0e991: if (c.cycles >= end) { c.key = 0x0e991; return -1; } c.cycles += 2; c.a = c.setNZ(c.y); // $E991 TYA
       case 0x0e992: if (c.cycles >= end) { c.key = 0x0e992; return -1; } c.cycles += 3; c.push(c.a); // $E992 PHA
       case 0x0e993: if (c.cycles >= end) { c.key = 0x0e993; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x1b]); // $E993 LDA $1B
-      case 0x0e995: if (c.cycles >= end) { c.key = 0x0e995; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e99d; continue; } // $E995 BNE $E99D
+      case 0x0e995: if (c.cycles >= end) { c.key = 0x0e995; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e99d; continue; } // $E995 BNE $E99D
       case 0x0e997: if (c.cycles >= end) { c.key = 0x0e997; return -1; } c.cycles += 3; return 0x0ea33; // $E997 JMP $EA33
       case 0x0e99d: if (c.cycles >= end) { c.key = 0x0e99d; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1f]); // $E99D LDX $1F
       case 0x0e99f: if (c.cycles >= end) { c.key = 0x0e99f; return -1; } c.cycles += 4; c.y = c.setNZ(c.read(c.indexed(0xea59, c.x))); // $E99F LDY $EA59,X
@@ -5251,8 +5252,8 @@ function b133(c, bus, ram, rom, end, pc) {
       case 0x0e9c9: if (c.cycles >= end) { c.key = 0x0e9c9; return -1; } c.cycles += 4; c.y = c.setNZ(c.read(c.indexed(0xea59, c.x))); // $E9C9 LDY $EA59,X
       case 0x0e9cc: if (c.cycles >= end) { c.key = 0x0e9cc; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x35]); // $E9CC LDA $35
       case 0x0e9ce: if (c.cycles >= end) { c.key = 0x0e9ce; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0x002f, c.y))); // $E9CE CMP $002F,Y
-      case 0x0e9d1: if (c.cycles >= end) { c.key = 0x0e9d1; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0e9e8; } // $E9D1 BCC $E9E8
-      case 0x0e9d3: if (c.cycles >= end) { c.key = 0x0e9d3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0e9ff; } // $E9D3 BNE $E9FF
+      case 0x0e9d1: if (c.cycles >= end) { c.key = 0x0e9d1; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e9e8; } // $E9D1 BCC $E9E8
+      case 0x0e9d3: if (c.cycles >= end) { c.key = 0x0e9d3; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0e9ff; } // $E9D3 BNE $E9FF
       case 0x0e9d5: if (c.cycles >= end) { c.key = 0x0e9d5; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x34]); return 0x0e9d7; // $E9D5 LDA $34
       default: return pc;
     }
@@ -5262,11 +5263,11 @@ function b134(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0e9d7: if (c.cycles >= end) { c.key = 0x0e9d7; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0x002e, c.y))); // $E9D7 CMP $002E,Y
-      case 0x0e9da: if (c.cycles >= end) { c.key = 0x0e9da; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0e9e8; continue; } // $E9DA BCC $E9E8
-      case 0x0e9dc: if (c.cycles >= end) { c.key = 0x0e9dc; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0e9ff; continue; } // $E9DC BNE $E9FF
+      case 0x0e9da: if (c.cycles >= end) { c.key = 0x0e9da; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e9e8; continue; } // $E9DA BCC $E9E8
+      case 0x0e9dc: if (c.cycles >= end) { c.key = 0x0e9dc; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e9ff; continue; } // $E9DC BNE $E9FF
       case 0x0e9de: if (c.cycles >= end) { c.key = 0x0e9de; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0x33]); // $E9DE LDA $33
       case 0x0e9e0: if (c.cycles >= end) { c.key = 0x0e9e0; return -1; } c.cycles += 4; c.cmp(c.a, c.read(c.indexed(0x002d, c.y))); // $E9E0 CMP $002D,Y
-      case 0x0e9e3: if (c.cycles >= end) { c.key = 0x0e9e3; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0e9ff; continue; } // $E9E3 BCS $E9FF
+      case 0x0e9e3: if (c.cycles >= end) { c.key = 0x0e9e3; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0e9ff; continue; } // $E9E3 BCS $E9FF
       case 0x0e9e5: if (c.cycles >= end) { c.key = 0x0e9e5; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $E9E5 STA $F5
       case 0x1e9e7: if (c.cycles >= end) { c.key = 0x1e9e7; return -1; } c.cycles += 2;  // $E9E7* NOP
       case 0x0e9e8: if (c.cycles >= end) { c.key = 0x0e9e8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x002d, c.y))); // $E9E8 LDA $002D,Y
@@ -5286,10 +5287,10 @@ function b134(c, bus, ram, rom, end, pc) {
       case 0x0ea06: if (c.cycles >= end) { c.key = 0x0ea06; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $EA06 TAX
       case 0x0ea07: if (c.cycles >= end) { c.key = 0x0ea07; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x002f, c.y))); // $EA07 LDA $002F,Y
       case 0x0ea0a: if (c.cycles >= end) { c.key = 0x0ea0a; return -1; } c.cycles += 4; c.cmp(c.a, c.read((0x5d + c.x) & 0xff)); // $EA0A CMP $5D,X
-      case 0x0ea0c: if (c.cycles >= end) { c.key = 0x0ea0c; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0ea33; } // $EA0C BCC $EA33
+      case 0x0ea0c: if (c.cycles >= end) { c.key = 0x0ea0c; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0ea33; } // $EA0C BCC $EA33
       case 0x0ea0e: if (c.cycles >= end) { c.key = 0x0ea0e; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x002e, c.y))); // $EA0E LDA $002E,Y
       case 0x0ea11: if (c.cycles >= end) { c.key = 0x0ea11; return -1; } c.cycles += 4; c.cmp(c.a, c.read((0x5c + c.x) & 0xff)); // $EA11 CMP $5C,X
-      case 0x0ea13: if (c.cycles >= end) { c.key = 0x0ea13; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0ea33; } // $EA13 BCC $EA33
+      case 0x0ea13: if (c.cycles >= end) { c.key = 0x0ea13; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0ea33; } // $EA13 BCC $EA33
       case 0x0ea15: if (c.cycles >= end) { c.key = 0x0ea15; return -1; } c.cycles += 2; c.p &= ~0x01; // $EA15 CLC
       case 0x0ea16: if (c.cycles >= end) { c.key = 0x0ea16; return -1; } c.cycles += 2; c.p |= 0x08; // $EA16 SED
       case 0x0ea17: if (c.cycles >= end) { c.key = 0x0ea17; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x5c + c.x) & 0xff)); return 0x0ea19; // $EA17 LDA $5C,X
@@ -5321,7 +5322,7 @@ function b135(c, bus, ram, rom, end, pc) {
       case 0x0ea5d: if (c.cycles >= end) { c.key = 0x0ea5d; return -1; } c.cycles += 2;  // $EA5D NOP
       case 0x0ea5e: if (c.cycles >= end) { c.key = 0x0ea5e; return -1; } c.cycles += 3; ram[0xc7] = c.x; // $EA5E STX $C7
       case 0x0ea60: if (c.cycles >= end) { c.key = 0x0ea60; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0x1b]); // $EA60 LDX $1B
-      case 0x0ea62: if (c.cycles >= end) { c.key = 0x0ea62; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0ea6e; continue; } // $EA62 BEQ $EA6E
+      case 0x0ea62: if (c.cycles >= end) { c.key = 0x0ea62; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ea6e; continue; } // $EA62 BEQ $EA6E
       case 0x0ea64: if (c.cycles >= end) { c.key = 0x0ea64; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $EA64 TAX
       case 0x0ea65: if (c.cycles >= end) { c.key = 0x0ea65; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xea71, c.x))); // $EA65 LDA $EA71,X
       case 0x0ea68: if (c.cycles >= end) { c.key = 0x0ea68; return -1; } c.cycles += 4; c.write(0x4003, c.a); // $EA68 STA $4003
@@ -5343,29 +5344,29 @@ function b136(c, bus, ram, rom, end, pc) {
       case 0x0ea93: if (c.cycles >= end) { c.key = 0x0ea93; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $EA93 LDA $68,X
       case 0x0ea95: if (c.cycles >= end) { c.key = 0x0ea95; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xf0); // $EA95 AND #$F0
       case 0x0ea97: if (c.cycles >= end) { c.key = 0x0ea97; return -1; } c.cycles += 2; c.cmp(c.a, 0x80); // $EA97 CMP #$80
-      case 0x0ea99: if (c.cycles >= end) { c.key = 0x0ea99; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0eaa8; continue; } // $EA99 BEQ $EAA8
+      case 0x0ea99: if (c.cycles >= end) { c.key = 0x0ea99; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0eaa8; continue; } // $EA99 BEQ $EAA8
       case 0x0ea9b: if (c.cycles >= end) { c.key = 0x0ea9b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $EA9B STA $F5
       case 0x0ea9d: if (c.cycles >= end) { c.key = 0x0ea9d; return -1; } c.cycles += 2;  // $EA9D NOP
       case 0x0ea9e: if (c.cycles >= end) { c.key = 0x0ea9e; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $EA9E DEX
-      case 0x0ea9f: if (c.cycles >= end) { c.key = 0x0ea9f; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0ea93; continue; } // $EA9F BPL $EA93
+      case 0x0ea9f: if (c.cycles >= end) { c.key = 0x0ea9f; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ea93; continue; } // $EA9F BPL $EA93
       case 0x0eaa1: if (c.cycles >= end) { c.key = 0x0eaa1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $EAA1 STA $F5
       case 0x0eaa3: if (c.cycles >= end) { c.key = 0x0eaa3; return -1; } c.cycles += 2;  // $EAA3 NOP
       case 0x0eaa4: if (c.cycles >= end) { c.key = 0x0eaa4; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $EAA4 RTS
       case 0x0eaa8: if (c.cycles >= end) { c.key = 0x0eaa8; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x99 + c.x) & 0xff)); // $EAA8 LDA $99,X
       case 0x0eaaa: if (c.cycles >= end) { c.key = 0x0eaaa; return -1; } c.cycles += 2; c.cmp(c.a, 0x01); // $EAAA CMP #$01
-      case 0x0eaac: if (c.cycles >= end) { c.key = 0x0eaac; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0eaf6; } // $EAAC BEQ $EAF6
+      case 0x0eaac: if (c.cycles >= end) { c.key = 0x0eaac; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eaf6; } // $EAAC BEQ $EAF6
       case 0x0eaae: if (c.cycles >= end) { c.key = 0x0eaae; return -1; } c.cycles += 6; c.rmw((0x99 + c.x) & 0xff, (v) => c.setNZ((v - 1) & 0xff)); // $EAAE DEC $99,X
       case 0x0eab0: if (c.cycles >= end) { c.key = 0x0eab0; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x99 + c.x) & 0xff)); // $EAB0 LDA $99,X
       case 0x0eab2: if (c.cycles >= end) { c.key = 0x0eab2; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $EAB2 CMP #$40
-      case 0x0eab4: if (c.cycles >= end) { c.key = 0x0eab4; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0eaf9; } // $EAB4 BEQ $EAF9
+      case 0x0eab4: if (c.cycles >= end) { c.key = 0x0eab4; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eaf9; } // $EAB4 BEQ $EAF9
       case 0x0eab6: if (c.cycles >= end) { c.key = 0x0eab6; return -1; } c.cycles += 2; c.cmp(c.a, 0x38); // $EAB6 CMP #$38
       case 0x0eab8: if (c.cycles >= end) { c.key = 0x0eab8; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0eb0d; } // $EAB8 BEQ $EB0D
       case 0x0eaba: if (c.cycles >= end) { c.key = 0x0eaba; return -1; } c.cycles += 2; c.cmp(c.a, 0x30); // $EABA CMP #$30
       case 0x0eabc: if (c.cycles >= end) { c.key = 0x0eabc; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 2; return 0x0eb21; } // $EABC BEQ $EB21
       case 0x0eabe: if (c.cycles >= end) { c.key = 0x0eabe; return -1; } c.cycles += 2; c.cmp(c.a, 0x28); // $EABE CMP #$28
-      case 0x0eac0: if (c.cycles >= end) { c.key = 0x0eac0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0eae5; } // $EAC0 BEQ $EAE5
+      case 0x0eac0: if (c.cycles >= end) { c.key = 0x0eac0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eae5; } // $EAC0 BEQ $EAE5
       case 0x0eac2: if (c.cycles >= end) { c.key = 0x0eac2; return -1; } c.cycles += 2; c.cmp(c.a, 0x20); // $EAC2 CMP #$20
-      case 0x0eac4: if (c.cycles >= end) { c.key = 0x0eac4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0ea9e; continue; } // $EAC4 BNE $EA9E
+      case 0x0eac4: if (c.cycles >= end) { c.key = 0x0eac4; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0ea9e; continue; } // $EAC4 BNE $EA9E
       case 0x0eac6: if (c.cycles >= end) { c.key = 0x0eac6; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $EAC6 LDA $68,X
       case 0x0eac8: if (c.cycles >= end) { c.key = 0x0eac8; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $EAC8 AND #$03
       case 0x0eaca: if (c.cycles >= end) { c.key = 0x0eaca; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $EACA TAY
@@ -5437,11 +5438,11 @@ function b138(c, bus, ram, rom, end, pc) {
       case 0x0eb6e: if (c.cycles >= end) { c.key = 0x0eb6e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $EB6E STA $F5
       case 0x0eb70: if (c.cycles >= end) { c.key = 0x0eb70; return -1; } c.cycles += 2;  // $EB70 NOP
       case 0x0eb71: if (c.cycles >= end) { c.key = 0x0eb71; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $EB71 LDA $68,X
-      case 0x0eb73: if (c.cycles >= end) { c.key = 0x0eb73; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0eb7f; continue; } // $EB73 BPL $EB7F
+      case 0x0eb73: if (c.cycles >= end) { c.key = 0x0eb73; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0eb7f; continue; } // $EB73 BPL $EB7F
       case 0x0eb75: if (c.cycles >= end) { c.key = 0x0eb75; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $EB75 STA $F5
       case 0x1eb77: if (c.cycles >= end) { c.key = 0x1eb77; return -1; } c.cycles += 2;  // $EB77* NOP
       case 0x0eb78: if (c.cycles >= end) { c.key = 0x0eb78; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $EB78 DEX
-      case 0x0eb79: if (c.cycles >= end) { c.key = 0x0eb79; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0eb71; continue; } // $EB79 BPL $EB71
+      case 0x0eb79: if (c.cycles >= end) { c.key = 0x0eb79; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0eb71; continue; } // $EB79 BPL $EB71
       case 0x0eb7b: if (c.cycles >= end) { c.key = 0x0eb7b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $EB7B RTS
       case 0x0eb7f: if (c.cycles >= end) { c.key = 0x0eb7f; return -1; } c.cycles += 4; c.y = c.setNZ(c.read(c.indexed(0xeb4f, c.x))); // $EB7F LDY $EB4F,X
       case 0x0eb82: if (c.cycles >= end) { c.key = 0x0eb82; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x1802, c.y))); // $EB82 LDA $1802,Y
@@ -5459,17 +5460,17 @@ function b139(c, bus, ram, rom, end, pc) {
       case 0x0eb8f: if (c.cycles >= end) { c.key = 0x0eb8f; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0203, c.y))); // $EB8F LDA $0203,Y
       case 0x0eb92: if (c.cycles >= end) { c.key = 0x0eb92; return -1; } c.cycles += 2; c.sbc(0x08); // $EB92 SBC #$08
       case 0x0eb94: if (c.cycles >= end) { c.key = 0x0eb94; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $EB94 CMP $03
-      case 0x0eb96: if (c.cycles >= end) { c.key = 0x0eb96; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0eb78; } // $EB96 BCC $EB78
+      case 0x0eb96: if (c.cycles >= end) { c.key = 0x0eb96; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eb78; } // $EB96 BCC $EB78
       case 0x0eb98: if (c.cycles >= end) { c.key = 0x0eb98; return -1; } c.cycles += 2; c.sbc(0x20); // $EB98 SBC #$20
       case 0x0eb9a: if (c.cycles >= end) { c.key = 0x0eb9a; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x03]); // $EB9A CMP $03
-      case 0x0eb9c: if (c.cycles >= end) { c.key = 0x0eb9c; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0eb78; } // $EB9C BCS $EB78
+      case 0x0eb9c: if (c.cycles >= end) { c.key = 0x0eb9c; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eb78; } // $EB9C BCS $EB78
       case 0x0eb9e: if (c.cycles >= end) { c.key = 0x0eb9e; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x0204, c.y))); // $EB9E LDA $0204,Y
       case 0x0eba1: if (c.cycles >= end) { c.key = 0x0eba1; return -1; } c.cycles += 2; c.sbc(0x05); // $EBA1 SBC #$05
       case 0x0eba3: if (c.cycles >= end) { c.key = 0x0eba3; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $EBA3 CMP $04
-      case 0x0eba5: if (c.cycles >= end) { c.key = 0x0eba5; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0eb78; } // $EBA5 BCS $EB78
+      case 0x0eba5: if (c.cycles >= end) { c.key = 0x0eba5; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eb78; } // $EBA5 BCS $EB78
       case 0x0eba7: if (c.cycles >= end) { c.key = 0x0eba7; return -1; } c.cycles += 2; c.adc(0x0c); // $EBA7 ADC #$0C
       case 0x0eba9: if (c.cycles >= end) { c.key = 0x0eba9; return -1; } c.cycles += 3; c.cmp(c.a, ram[0x04]); // $EBA9 CMP $04
-      case 0x0ebab: if (c.cycles >= end) { c.key = 0x0ebab; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0eb78; } // $EBAB BCC $EB78
+      case 0x0ebab: if (c.cycles >= end) { c.key = 0x0ebab; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0eb78; } // $EBAB BCC $EB78
       case 0x0ebad: if (c.cycles >= end) { c.key = 0x0ebad; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0x68 + c.x) & 0xff)); // $EBAD LDA $68,X
       case 0x0ebaf: if (c.cycles >= end) { c.key = 0x0ebaf; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $EBAF AND #$0F
       case 0x0ebb1: if (c.cycles >= end) { c.key = 0x0ebb1; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x80); // $EBB1 ORA #$80
@@ -5485,7 +5486,7 @@ function b139(c, bus, ram, rom, end, pc) {
       case 0x0ebc8: if (c.cycles >= end) { c.key = 0x0ebc8; return -1; } c.cycles += 3; ram[0x2c] = c.a; // $EBC8 STA $2C
       case 0x0ebca: if (c.cycles >= end) { c.key = 0x0ebca; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4004)); // $EBCA LDA $4004
       case 0x0ebcd: if (c.cycles >= end) { c.key = 0x0ebcd; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $EBCD AND #$10
-      case 0x0ebcf: if (c.cycles >= end) { c.key = 0x0ebcf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0ebd6; } // $EBCF BNE $EBD6
+      case 0x0ebcf: if (c.cycles >= end) { c.key = 0x0ebcf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0ebd6; } // $EBCF BNE $EBD6
       case 0x0ebd1: if (c.cycles >= end) { c.key = 0x0ebd1; return -1; } c.cycles += 5; ram[0x2b] = c.setNZ((ram[0x2b] - 1) & 0xff); // $EBD1 DEC $2B
       case 0x0ebd3: if (c.cycles >= end) { c.key = 0x0ebd3; return -1; } c.cycles += 3; ram[0xf6] = c.a; return 0x1ebd5; // $EBD3 STA $F6
       default: return pc;
@@ -5516,10 +5517,10 @@ function b140(c, bus, ram, rom, end, pc) {
       case 0x0f00f: if (c.cycles >= end) { c.key = 0x0f00f; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0xe4, true))); // $F00F LDA ($E4),Y
       case 0x0f011: if (c.cycles >= end) { c.key = 0x0f011; return -1; } c.cycles += 5; c.write((0x00e7 + c.y) & 0xffff, c.a); // $F011 STA $00E7,Y
       case 0x0f014: if (c.cycles >= end) { c.key = 0x0f014; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $F014 DEY
-      case 0x0f015: if (c.cycles >= end) { c.key = 0x0f015; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f00f; continue; } // $F015 BPL $F00F
+      case 0x0f015: if (c.cycles >= end) { c.key = 0x0f015; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f00f; continue; } // $F015 BPL $F00F
       case 0x0f017: if (c.cycles >= end) { c.key = 0x0f017; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe7]); // $F017 LDA $E7
       case 0x0f019: if (c.cycles >= end) { c.key = 0x0f019; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $F019 CMP #$FF
-      case 0x0f01b: if (c.cycles >= end) { c.key = 0x0f01b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f021; continue; } // $F01B BNE $F021
+      case 0x0f01b: if (c.cycles >= end) { c.key = 0x0f01b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f021; continue; } // $F01B BNE $F021
       case 0x0f01d: if (c.cycles >= end) { c.key = 0x0f01d; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F01D RTS
       case 0x0f021: if (c.cycles >= end) { c.key = 0x0f021; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe4]); // $F021 LDA $E4
       case 0x0f023: if (c.cycles >= end) { c.key = 0x0f023; return -1; } c.cycles += 2; c.p &= ~0x01; // $F023 CLC
@@ -5545,7 +5546,7 @@ function b141(c, bus, ram, rom, end, pc) {
       case 0x0f03a: if (c.cycles >= end) { c.key = 0x0f03a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe9]); // $F03A LDA $E9
       case 0x0f03c: if (c.cycles >= end) { c.key = 0x0f03c; return -1; } c.cycles += 3; c.sbc(ram[0xce]); // $F03C SBC $CE
       case 0x0f03e: if (c.cycles >= end) { c.key = 0x0f03e; return -1; } c.cycles += 2; c.p &= ~0x08; // $F03E CLD
-      case 0x0f03f: if (c.cycles >= end) { c.key = 0x0f03f; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; return 0x0f00a; } // $F03F BCS $F00A
+      case 0x0f03f: if (c.cycles >= end) { c.key = 0x0f03f; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f00a; } // $F03F BCS $F00A
       case 0x0f041: if (c.cycles >= end) { c.key = 0x0f041; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xed]); // $F041 LDX $ED
       case 0x0f043: if (c.cycles >= end) { c.key = 0x0f043; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xf07e, c.x))); // $F043 LDA $F07E,X
       case 0x0f046: if (c.cycles >= end) { c.key = 0x0f046; return -1; } c.cycles += 2; c.p &= ~0x01; // $F046 CLC
@@ -5562,7 +5563,7 @@ function b141(c, bus, ram, rom, end, pc) {
       case 0x0f05b: if (c.cycles >= end) { c.key = 0x0f05b; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $F05B LDA #$00
       case 0x0f05d: if (c.cycles >= end) { c.key = 0x0f05d; return -1; } c.cycles += 4; c.write((0xcc + c.x) & 0xff, c.a); // $F05D STA $CC,X
       case 0x0f05f: if (c.cycles >= end) { c.key = 0x0f05f; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $F05F DEX
-      case 0x0f060: if (c.cycles >= end) { c.key = 0x0f060; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f05b; continue; } // $F060 BPL $F05B
+      case 0x0f060: if (c.cycles >= end) { c.key = 0x0f060; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f05b; continue; } // $F060 BPL $F05B
       case 0x0f062: if (c.cycles >= end) { c.key = 0x0f062; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xed]); // $F062 LDX $ED
       case 0x0f064: if (c.cycles >= end) { c.key = 0x0f064; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xf084, c.x))); // $F064 LDA $F084,X
       case 0x0f067: if (c.cycles >= end) { c.key = 0x0f067; return -1; } c.cycles += 2; c.p &= ~0x01; return 0x0f068; // $F067 CLC
@@ -5590,10 +5591,10 @@ function b142(c, bus, ram, rom, end, pc) {
       case 0x0f092: if (c.cycles >= end) { c.key = 0x0f092; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0xd8, true))); // $F092 LDA ($D8),Y
       case 0x0f094: if (c.cycles >= end) { c.key = 0x0f094; return -1; } c.cycles += 5; c.write((0x00ea + c.y) & 0xffff, c.a); // $F094 STA $00EA,Y
       case 0x0f097: if (c.cycles >= end) { c.key = 0x0f097; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $F097 DEY
-      case 0x0f098: if (c.cycles >= end) { c.key = 0x0f098; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f092; continue; } // $F098 BPL $F092
+      case 0x0f098: if (c.cycles >= end) { c.key = 0x0f098; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f092; continue; } // $F098 BPL $F092
       case 0x0f09a: if (c.cycles >= end) { c.key = 0x0f09a; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xea]); // $F09A LDA $EA
       case 0x0f09c: if (c.cycles >= end) { c.key = 0x0f09c; return -1; } c.cycles += 2; c.cmp(c.a, 0xff); // $F09C CMP #$FF
-      case 0x0f09e: if (c.cycles >= end) { c.key = 0x0f09e; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f0a4; continue; } // $F09E BNE $F0A4
+      case 0x0f09e: if (c.cycles >= end) { c.key = 0x0f09e; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f0a4; continue; } // $F09E BNE $F0A4
       case 0x0f0a0: if (c.cycles >= end) { c.key = 0x0f0a0; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F0A0 RTS
       case 0x0f0a4: if (c.cycles >= end) { c.key = 0x0f0a4; return -1; } c.cycles += 3; c.y = c.setNZ(ram[0xda]); // $F0A4 LDY $DA
       case 0x0f0a6: if (c.cycles >= end) { c.key = 0x0f0a6; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F0A6 STA $F5
@@ -5601,7 +5602,7 @@ function b142(c, bus, ram, rom, end, pc) {
       case 0x0f0a9: if (c.cycles >= end) { c.key = 0x0f0a9; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x00cc, c.y))); // $F0A9 LDA $00CC,Y
       case 0x0f0ac: if (c.cycles >= end) { c.key = 0x0f0ac; return -1; } c.cycles += 6; c.write(c.indirectY(0xd8, false), c.a); // $F0AC STA ($D8),Y
       case 0x0f0ae: if (c.cycles >= end) { c.key = 0x0f0ae; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $F0AE DEY
-      case 0x0f0af: if (c.cycles >= end) { c.key = 0x0f0af; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f0a9; continue; } // $F0AF BPL $F0A9
+      case 0x0f0af: if (c.cycles >= end) { c.key = 0x0f0af; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f0a9; continue; } // $F0AF BPL $F0A9
       case 0x0f0b1: if (c.cycles >= end) { c.key = 0x0f0b1; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xda]); // $F0B1 LDX $DA
       case 0x0f0b3: if (c.cycles >= end) { c.key = 0x0f0b3; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F0B3 STA $F5
       case 0x0f0b5: if (c.cycles >= end) { c.key = 0x0f0b5; return -1; } c.cycles += 2;  return 0x0f0b6; // $F0B5 NOP
@@ -5615,7 +5616,7 @@ function b143(c, bus, ram, rom, end, pc) {
       case 0x0f0b6: if (c.cycles >= end) { c.key = 0x0f0b6; return -1; } c.cycles += 4; c.a = c.setNZ(c.read((0xea + c.x) & 0xff)); // $F0B6 LDA $EA,X
       case 0x0f0b8: if (c.cycles >= end) { c.key = 0x0f0b8; return -1; } c.cycles += 4; c.write((0xcc + c.x) & 0xff, c.a); // $F0B8 STA $CC,X
       case 0x0f0ba: if (c.cycles >= end) { c.key = 0x0f0ba; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $F0BA DEX
-      case 0x0f0bb: if (c.cycles >= end) { c.key = 0x0f0bb; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f0b6; continue; } // $F0BB BPL $F0B6
+      case 0x0f0bb: if (c.cycles >= end) { c.key = 0x0f0bb; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f0b6; continue; } // $F0BB BPL $F0B6
       case 0x0f0bd: if (c.cycles >= end) { c.key = 0x0f0bd; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xda]); // $F0BD LDX $DA
       case 0x0f0bf: if (c.cycles >= end) { c.key = 0x0f0bf; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $F0BF INX
       case 0x0f0c0: if (c.cycles >= end) { c.key = 0x0f0c0; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $F0C0 TXA
@@ -5656,7 +5657,7 @@ function b144(c, bus, ram, rom, end, pc) {
       case 0x0f0f4: if (c.cycles >= end) { c.key = 0x0f0f4; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $F0F4 TAY
       case 0x0f0f5: if (c.cycles >= end) { c.key = 0x0f0f5; return -1; } c.cycles += 6; c.push(0xf0); c.push(0xf7); return 0x0c95a; // $F0F5 JSR $C95A
       case 0x0f0f8: if (c.cycles >= end) { c.key = 0x0f0f8; return -1; } c.cycles += 5; ram[0xdc] = c.setNZ((ram[0xdc] - 1) & 0xff); // $F0F8 DEC $DC
-      case 0x0f0fa: if (c.cycles >= end) { c.key = 0x0f0fa; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0f0e2; } // $F0FA BPL $F0E2
+      case 0x0f0fa: if (c.cycles >= end) { c.key = 0x0f0fa; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f0e2; } // $F0FA BPL $F0E2
       case 0x0f0fc: if (c.cycles >= end) { c.key = 0x0f0fc; return -1; } c.cycles += 2; c.a = c.setNZ(0x04); // $F0FC LDA #$04
       case 0x0f0fe: if (c.cycles >= end) { c.key = 0x0f0fe; return -1; } c.cycles += 3; ram[0xdc] = c.a; // $F0FE STA $DC
       case 0x0f100: if (c.cycles >= end) { c.key = 0x0f100; return -1; } c.cycles += 6; c.push(0xf1); c.push(0x02); return 0x1f1b6; // $F100 JSR $F1B6
@@ -5677,7 +5678,7 @@ function b144(c, bus, ram, rom, end, pc) {
       case 0x0f120: if (c.cycles >= end) { c.key = 0x0f120; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F120 LDA $E2
       case 0x0f122: if (c.cycles >= end) { c.key = 0x0f122; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $F122 AND #$0F
       case 0x0f124: if (c.cycles >= end) { c.key = 0x0f124; return -1; } c.cycles += 2; c.cmp(c.a, 0x0f); // $F124 CMP #$0F
-      case 0x0f126: if (c.cycles >= end) { c.key = 0x0f126; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f134; continue; } // $F126 BNE $F134
+      case 0x0f126: if (c.cycles >= end) { c.key = 0x0f126; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f134; continue; } // $F126 BNE $F134
       case 0x0f128: if (c.cycles >= end) { c.key = 0x0f128; return -1; } c.cycles += 6; c.push(0xf1); c.push(0x2a); return 0x0f2b8; // $F128 JSR $F2B8
       case 0x0f12b: if (c.cycles >= end) { c.key = 0x0f12b; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $F12B LDA #$00
       case 0x0f12d: if (c.cycles >= end) { c.key = 0x0f12d; return -1; } c.cycles += 4; c.write(0x4003, c.a); // $F12D STA $4003
@@ -5690,9 +5691,9 @@ function b144(c, bus, ram, rom, end, pc) {
 function b145(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0f136: if (c.cycles >= end) { c.key = 0x0f136; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f14d; continue; } // $F136 BPL $F14D
+      case 0x0f136: if (c.cycles >= end) { c.key = 0x0f136; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f14d; continue; } // $F136 BPL $F14D
       case 0x0f138: if (c.cycles >= end) { c.key = 0x0f138; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe3]); // $F138 LDA $E3
-      case 0x0f13a: if (c.cycles >= end) { c.key = 0x0f13a; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0f14d; continue; } // $F13A BMI $F14D
+      case 0x0f13a: if (c.cycles >= end) { c.key = 0x0f13a; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f14d; continue; } // $F13A BMI $F14D
       case 0x0f13c: if (c.cycles >= end) { c.key = 0x0f13c; return -1; } c.cycles += 2; c.a = c.setNZ(0xff); // $F13C LDA #$FF
       case 0x0f13e: if (c.cycles >= end) { c.key = 0x0f13e; return -1; } c.cycles += 3; ram[0xde] = c.a; // $F13E STA $DE
       case 0x0f140: if (c.cycles >= end) { c.key = 0x0f140; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe3]); // $F140 LDA $E3
@@ -5704,9 +5705,9 @@ function b145(c, bus, ram, rom, end, pc) {
       case 0x1f14c: if (c.cycles >= end) { c.key = 0x1f14c; return -1; } c.cycles += 2;  // $F14C* NOP
       case 0x0f14d: if (c.cycles >= end) { c.key = 0x0f14d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xde]); // $F14D LDA $DE
       case 0x0f14f: if (c.cycles >= end) { c.key = 0x0f14f; return -1; } c.cycles += 3; c.a = c.setNZ(c.a | ram[0xdf]); // $F14F ORA $DF
-      case 0x0f151: if (c.cycles >= end) { c.key = 0x0f151; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f165; continue; } // $F151 BNE $F165
+      case 0x0f151: if (c.cycles >= end) { c.key = 0x0f151; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f165; continue; } // $F151 BNE $F165
       case 0x0f153: if (c.cycles >= end) { c.key = 0x0f153; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F153 LDA $E2
-      case 0x0f155: if (c.cycles >= end) { c.key = 0x0f155; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f15e; continue; } // $F155 BPL $F15E
+      case 0x0f155: if (c.cycles >= end) { c.key = 0x0f155; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f15e; continue; } // $F155 BPL $F15E
       case 0x0f157: if (c.cycles >= end) { c.key = 0x0f157; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x0f); // $F157 ORA #$0F
       case 0x0f159: if (c.cycles >= end) { c.key = 0x0f159; return -1; } c.cycles += 3; ram[0xe2] = c.a; // $F159 STA $E2
       case 0x0f15b: if (c.cycles >= end) { c.key = 0x0f15b; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F15B STA $F5
@@ -5729,7 +5730,7 @@ function b145(c, bus, ram, rom, end, pc) {
 function b146(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
-      case 0x0f178: if (c.cycles >= end) { c.key = 0x0f178; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f197; continue; } // $F178 BEQ $F197
+      case 0x0f178: if (c.cycles >= end) { c.key = 0x0f178; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f197; continue; } // $F178 BEQ $F197
       case 0x0f17a: if (c.cycles >= end) { c.key = 0x0f17a; return -1; } c.cycles += 6; c.push(0xf1); c.push(0x7c); return 0x1f1dc; // $F17A JSR $F1DC
       case 0x0f17d: if (c.cycles >= end) { c.key = 0x0f17d; return -1; } c.cycles += 6; c.push(0xf1); c.push(0x7f); pc = 0x1f1b6; continue; // $F17D JSR $F1B6
       case 0x0f180: if (c.cycles >= end) { c.key = 0x0f180; return -1; } c.cycles += 6; c.push(0xf1); c.push(0x82); return 0x0f2f8; // $F180 JSR $F2F8
@@ -5738,7 +5739,7 @@ function b146(c, bus, ram, rom, end, pc) {
       case 0x0f187: if (c.cycles >= end) { c.key = 0x0f187; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $F187 TAX
       case 0x0f188: if (c.cycles >= end) { c.key = 0x0f188; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe3]); // $F188 LDA $E3
       case 0x0f18a: if (c.cycles >= end) { c.key = 0x0f18a; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $F18A AND #$40
-      case 0x0f18c: if (c.cycles >= end) { c.key = 0x0f18c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f192; continue; } // $F18C BNE $F192
+      case 0x0f18c: if (c.cycles >= end) { c.key = 0x0f18c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f192; continue; } // $F18C BNE $F192
       case 0x0f18e: if (c.cycles >= end) { c.key = 0x0f18e; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $F18E INX
       case 0x0f18f: if (c.cycles >= end) { c.key = 0x0f18f; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F18F STA $F5
       case 0x0f191: if (c.cycles >= end) { c.key = 0x0f191; return -1; } c.cycles += 2;  // $F191 NOP
@@ -5752,7 +5753,7 @@ function b146(c, bus, ram, rom, end, pc) {
       case 0x0f1a0: if (c.cycles >= end) { c.key = 0x0f1a0; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F1A0 LDA $E2
       case 0x0f1a2: if (c.cycles >= end) { c.key = 0x0f1a2; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $F1A2 AND #$0F
       case 0x0f1a4: if (c.cycles >= end) { c.key = 0x0f1a4; return -1; } c.cycles += 2; c.cmp(c.a, 0x03); // $F1A4 CMP #$03
-      case 0x0f1a6: if (c.cycles >= end) { c.key = 0x0f1a6; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0f1b1; continue; } // $F1A6 BCC $F1B1
+      case 0x0f1a6: if (c.cycles >= end) { c.key = 0x0f1a6; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f1b1; continue; } // $F1A6 BCC $F1B1
       case 0x0f1a8: if (c.cycles >= end) { c.key = 0x0f1a8; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe3]); // $F1A8 LDA $E3
       case 0x0f1aa: if (c.cycles >= end) { c.key = 0x0f1aa; return -1; } c.cycles += 2; c.a = c.setNZ(c.a | 0x20); // $F1AA ORA #$20
       case 0x0f1ac: if (c.cycles >= end) { c.key = 0x0f1ac; return -1; } c.cycles += 3; ram[0xe3] = c.a; // $F1AC STA $E3
@@ -5814,17 +5815,17 @@ function b148(c, bus, ram, rom, end, pc) {
       case 0x0f206: if (c.cycles >= end) { c.key = 0x0f206; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0xd8, true))); // $F206 LDA ($D8),Y
       case 0x0f208: if (c.cycles >= end) { c.key = 0x0f208; return -1; } c.cycles += 6; c.write(c.indirectY(0xda, false), c.a); // $F208 STA ($DA),Y
       case 0x0f20a: if (c.cycles >= end) { c.key = 0x0f20a; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $F20A DEY
-      case 0x0f20b: if (c.cycles >= end) { c.key = 0x0f20b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f206; continue; } // $F20B BPL $F206
+      case 0x0f20b: if (c.cycles >= end) { c.key = 0x0f20b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f206; continue; } // $F20B BPL $F206
       case 0x0f20d: if (c.cycles >= end) { c.key = 0x0f20d; return -1; } c.cycles += 5; ram[0xdd] = c.setNZ((ram[0xdd] - 1) & 0xff); // $F20D DEC $DD
       case 0x0f20f: if (c.cycles >= end) { c.key = 0x0f20f; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 2; return 0x0f1e4; } // $F20F BPL $F1E4
       case 0x0f211: if (c.cycles >= end) { c.key = 0x0f211; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F211 RTS
       case 0x0f2b8: if (c.cycles >= end) { c.key = 0x0f2b8; return -1; } c.cycles += 2;  // $F2B8 NOP
       case 0x0f2b9: if (c.cycles >= end) { c.key = 0x0f2b9; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $F2B9 LDA $4003
-      case 0x0f2bc: if (c.cycles >= end) { c.key = 0x0f2bc; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f2b9; continue; } // $F2BC BPL $F2B9
+      case 0x0f2bc: if (c.cycles >= end) { c.key = 0x0f2bc; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f2b9; continue; } // $F2BC BPL $F2B9
       case 0x0f2be: if (c.cycles >= end) { c.key = 0x0f2be; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F2BE STA $F5
       case 0x0f2c0: if (c.cycles >= end) { c.key = 0x0f2c0; return -1; } c.cycles += 2;  // $F2C0 NOP
       case 0x0f2c1: if (c.cycles >= end) { c.key = 0x0f2c1; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $F2C1 LDA $4003
-      case 0x0f2c4: if (c.cycles >= end) { c.key = 0x0f2c4; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0f2c1; continue; } // $F2C4 BMI $F2C1
+      case 0x0f2c4: if (c.cycles >= end) { c.key = 0x0f2c4; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f2c1; continue; } // $F2C4 BMI $F2C1
       case 0x0f2c6: if (c.cycles >= end) { c.key = 0x0f2c6; return -1; } c.cycles += 2; c.pollI = c.p & 0x04; c.p &= ~0x04; // $F2C6 CLI
       case 0x0f2c7: if (c.cycles >= end) { c.key = 0x0f2c7; return -1; } c.cycles += 2;  c.pollI = c.p & 0x04; if (c.cycles < end) { pc = interrupts(c, 0x0f2c8); if (pc !== 0x0f2c8) return pc; } pc = 0x0f2c8; continue; // $F2C7 NOP
       case 0x0f2c8: if (c.cycles >= end) { c.key = 0x0f2c8; return -1; } c.cycles += 2;  // $F2C8 NOP
@@ -5848,13 +5849,13 @@ function b149(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0f2dd: if (c.cycles >= end) { c.key = 0x0f2dd; return -1; } c.cycles += 3; ram[0xdf] = c.a; // $F2DD STA $DF
       case 0x0f2df: if (c.cycles >= end) { c.key = 0x0f2df; return -1; } c.cycles += 5; ram[0xe0] = c.setNZ((ram[0xe0] - 1) & 0xff); // $F2DF DEC $E0
-      case 0x0f2e1: if (c.cycles >= end) { c.key = 0x0f2e1; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f2ea; continue; } // $F2E1 BPL $F2EA
+      case 0x0f2e1: if (c.cycles >= end) { c.key = 0x0f2e1; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f2ea; continue; } // $F2E1 BPL $F2EA
       case 0x0f2e3: if (c.cycles >= end) { c.key = 0x0f2e3; return -1; } c.cycles += 2; c.a = c.setNZ(0x04); // $F2E3 LDA #$04
       case 0x0f2e5: if (c.cycles >= end) { c.key = 0x0f2e5; return -1; } c.cycles += 3; ram[0xe0] = c.a; // $F2E5 STA $E0
       case 0x0f2e7: if (c.cycles >= end) { c.key = 0x0f2e7; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F2E7 STA $F5
       case 0x0f2e9: if (c.cycles >= end) { c.key = 0x0f2e9; return -1; } c.cycles += 2;  // $F2E9 NOP
       case 0x0f2ea: if (c.cycles >= end) { c.key = 0x0f2ea; return -1; } c.cycles += 5; ram[0xe1] = c.setNZ((ram[0xe1] - 1) & 0xff); // $F2EA DEC $E1
-      case 0x0f2ec: if (c.cycles >= end) { c.key = 0x0f2ec; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f2f5; continue; } // $F2EC BPL $F2F5
+      case 0x0f2ec: if (c.cycles >= end) { c.key = 0x0f2ec; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f2f5; continue; } // $F2EC BPL $F2F5
       case 0x0f2ee: if (c.cycles >= end) { c.key = 0x0f2ee; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $F2EE LDA #$00
       case 0x0f2f0: if (c.cycles >= end) { c.key = 0x0f2f0; return -1; } c.cycles += 3; ram[0xe1] = c.a; // $F2F0 STA $E1
       case 0x0f2f2: if (c.cycles >= end) { c.key = 0x0f2f2; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F2F2 STA $F5
@@ -5875,7 +5876,7 @@ function b149(c, bus, ram, rom, end, pc) {
       case 0x0f30d: if (c.cycles >= end) { c.key = 0x0f30d; return -1; } c.cycles += 6; c.write(c.indirectY(0xd8, false), c.a); // $F30D STA ($D8),Y
       case 0x1f30f: if (c.cycles >= end) { c.key = 0x1f30f; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $F30F* INX
       case 0x0f310: if (c.cycles >= end) { c.key = 0x0f310; return -1; } c.cycles += 2; c.cmp(c.x, 0x0f); // $F310 CPX #$0F
-      case 0x0f312: if (c.cycles >= end) { c.key = 0x0f312; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f318; continue; } // $F312 BNE $F318
+      case 0x0f312: if (c.cycles >= end) { c.key = 0x0f312; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f318; continue; } // $F312 BNE $F318
       case 0x0f314: if (c.cycles >= end) { c.key = 0x0f314; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F314 RTS
       case 0x0f318: if (c.cycles >= end) { c.key = 0x0f318; return -1; } c.cycles += 2; c.y = c.setNZ((c.y + 1) & 0xff); return 0x0f319; // $F318 INY
       default: return pc;
@@ -5886,7 +5887,7 @@ function b150(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0f319: if (c.cycles >= end) { c.key = 0x0f319; return -1; } c.cycles += 2; c.cmp(c.y, 0x03); // $F319 CPY #$03
-      case 0x0f31b: if (c.cycles >= end) { c.key = 0x0f31b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f30b; } // $F31B BNE $F30B
+      case 0x0f31b: if (c.cycles >= end) { c.key = 0x0f31b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f30b; } // $F31B BNE $F30B
       case 0x0f31d: if (c.cycles >= end) { c.key = 0x0f31d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xd8]); // $F31D LDA $D8
       case 0x0f31f: if (c.cycles >= end) { c.key = 0x0f31f; return -1; } c.cycles += 2; c.p &= ~0x01; // $F31F CLC
       case 0x0f320: if (c.cycles >= end) { c.key = 0x0f320; return -1; } c.cycles += 2; c.adc(0x40); // $F320 ADC #$40
@@ -5897,7 +5898,7 @@ function b150(c, bus, ram, rom, end, pc) {
       case 0x0f32a: if (c.cycles >= end) { c.key = 0x0f32a; return -1; } c.cycles += 3; return 0x0f306; // $F32A JMP $F306
       case 0x1f32f: if (c.cycles >= end) { c.key = 0x1f32f; return -1; } c.cycles += 2;  // $F32F* NOP
       case 0x0f330: if (c.cycles >= end) { c.key = 0x0f330; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe0]); // $F330 LDA $E0
-      case 0x0f332: if (c.cycles >= end) { c.key = 0x0f332; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f379; } // $F332 BNE $F379
+      case 0x0f332: if (c.cycles >= end) { c.key = 0x0f332; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f379; } // $F332 BNE $F379
       case 0x0f334: if (c.cycles >= end) { c.key = 0x0f334; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F334 LDA $E2
       case 0x0f336: if (c.cycles >= end) { c.key = 0x0f336; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $F336 AND #$10
       case 0x0f338: if (c.cycles >= end) { c.key = 0x0f338; return -1; } c.cycles += 2; c.a = c.lsr(c.a); // $F338 LSR A
@@ -5908,11 +5909,11 @@ function b150(c, bus, ram, rom, end, pc) {
       case 0x0f33d: if (c.cycles >= end) { c.key = 0x0f33d; return -1; } c.cycles += 2; c.adc(0x43); // $F33D ADC #$43
       case 0x0f33f: if (c.cycles >= end) { c.key = 0x0f33f; return -1; } c.cycles += 4; c.write(0x1801, c.a); // $F33F STA $1801
       case 0x0f342: if (c.cycles >= end) { c.key = 0x0f342; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F342 LDA $E2
-      case 0x0f344: if (c.cycles >= end) { c.key = 0x0f344; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0f370; } // $F344 BPL $F370
+      case 0x0f344: if (c.cycles >= end) { c.key = 0x0f344; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f370; } // $F344 BPL $F370
       case 0x0f346: if (c.cycles >= end) { c.key = 0x0f346; return -1; } c.cycles += 5; ram[0xdc] = c.setNZ((ram[0xdc] - 1) & 0xff); // $F346 DEC $DC
-      case 0x0f348: if (c.cycles >= end) { c.key = 0x0f348; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f351; continue; } // $F348 BEQ $F351
+      case 0x0f348: if (c.cycles >= end) { c.key = 0x0f348; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f351; continue; } // $F348 BEQ $F351
       case 0x0f34a: if (c.cycles >= end) { c.key = 0x0f34a; return -1; } c.cycles += 2; c.a = c.setNZ(0x47); // $F34A LDA #$47
-      case 0x0f34c: if (c.cycles >= end) { c.key = 0x0f34c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f36a; } // $F34C BNE $F36A
+      case 0x0f34c: if (c.cycles >= end) { c.key = 0x0f34c; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f36a; } // $F34C BNE $F36A
       case 0x0f34e: if (c.cycles >= end) { c.key = 0x0f34e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F34E STA $F5
       case 0x0f350: if (c.cycles >= end) { c.key = 0x0f350; return -1; } c.cycles += 2;  // $F350 NOP
       case 0x0f351: if (c.cycles >= end) { c.key = 0x0f351; return -1; } c.cycles += 5; ram[0xf3] = c.setNZ((ram[0xf3] + 1) & 0xff); // $F351 INC $F3
@@ -5925,7 +5926,7 @@ function b151(c, bus, ram, rom, end, pc) {
   for (;;) {
     switch (pc) {
       case 0x0f355: if (c.cycles >= end) { c.key = 0x0f355; return -1; } c.cycles += 2; c.cmp(c.a, 0x01); // $F355 CMP #$01
-      case 0x0f357: if (c.cycles >= end) { c.key = 0x0f357; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f361; continue; } // $F357 BNE $F361
+      case 0x0f357: if (c.cycles >= end) { c.key = 0x0f357; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f361; continue; } // $F357 BNE $F361
       case 0x0f359: if (c.cycles >= end) { c.key = 0x0f359; return -1; } c.cycles += 2; c.a = c.setNZ(0x1e); // $F359 LDA #$1E
       case 0x0f35b: if (c.cycles >= end) { c.key = 0x0f35b; return -1; } c.cycles += 4; c.write(0x4003, c.a); // $F35B STA $4003
       case 0x1f35e: if (c.cycles >= end) { c.key = 0x1f35e; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F35E* STA $F5
@@ -5948,14 +5949,14 @@ function b151(c, bus, ram, rom, end, pc) {
       case 0x0f37d: if (c.cycles >= end) { c.key = 0x0f37d; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4002)); // $F37D LDA $4002
       case 0x0f380: if (c.cycles >= end) { c.key = 0x0f380; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $F380 EOR #$FF
       case 0x0f382: if (c.cycles >= end) { c.key = 0x0f382; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $F382 AND #$03
-      case 0x0f384: if (c.cycles >= end) { c.key = 0x0f384; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f38e; continue; } // $F384 BEQ $F38E
+      case 0x0f384: if (c.cycles >= end) { c.key = 0x0f384; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f38e; continue; } // $F384 BEQ $F38E
       case 0x0f386: if (c.cycles >= end) { c.key = 0x0f386; return -1; } c.cycles += 2; c.x = c.setNZ(c.s); // $F386 TSX
       case 0x0f387: if (c.cycles >= end) { c.key = 0x0f387; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $F387 INX
       case 0x0f388: if (c.cycles >= end) { c.key = 0x0f388; return -1; } c.cycles += 2; c.x = c.setNZ((c.x + 1) & 0xff); // $F388 INX
       case 0x0f389: if (c.cycles >= end) { c.key = 0x0f389; return -1; } c.cycles += 2; c.s = c.x; // $F389 TXS
       case 0x0f38a: if (c.cycles >= end) { c.key = 0x0f38a; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F38A RTS
       case 0x0f38e: if (c.cycles >= end) { c.key = 0x0f38e; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe0]); // $F38E LDA $E0
-      case 0x0f390: if (c.cycles >= end) { c.key = 0x0f390; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f3d4; } return 0x0f392; // $F390 BNE $F3D4
+      case 0x0f390: if (c.cycles >= end) { c.key = 0x0f390; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f3d4; } return 0x0f392; // $F390 BNE $F3D4
       default: return pc;
     }
   }
@@ -5965,11 +5966,11 @@ function b152(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0f392: if (c.cycles >= end) { c.key = 0x0f392; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F392 LDA $E2
       case 0x0f394: if (c.cycles >= end) { c.key = 0x0f394; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xe0); // $F394 AND #$E0
-      case 0x0f396: if (c.cycles >= end) { c.key = 0x0f396; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f3d4; } // $F396 BNE $F3D4
+      case 0x0f396: if (c.cycles >= end) { c.key = 0x0f396; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f3d4; } // $F396 BNE $F3D4
       case 0x0f398: if (c.cycles >= end) { c.key = 0x0f398; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xcb]); // $F398 LDX $CB
       case 0x0f39a: if (c.cycles >= end) { c.key = 0x0f39a; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $F39A LDA $4003
       case 0x0f39d: if (c.cycles >= end) { c.key = 0x0f39d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $F39D AND #$40
-      case 0x0f39f: if (c.cycles >= end) { c.key = 0x0f39f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f3a6; continue; } // $F39F BNE $F3A6
+      case 0x0f39f: if (c.cycles >= end) { c.key = 0x0f39f; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f3a6; continue; } // $F39F BNE $F3A6
       case 0x0f3a1: if (c.cycles >= end) { c.key = 0x0f3a1; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $F3A1 LDX #$00
       case 0x0f3a3: if (c.cycles >= end) { c.key = 0x0f3a3; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F3A3 STA $F5
       case 0x1f3a5: if (c.cycles >= end) { c.key = 0x1f3a5; return -1; } c.cycles += 2;  // $F3A5* NOP
@@ -5979,16 +5980,16 @@ function b152(c, bus, ram, rom, end, pc) {
       case 0x0f3ad: if (c.cycles >= end) { c.key = 0x0f3ad; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $F3AD TAX
       case 0x0f3ae: if (c.cycles >= end) { c.key = 0x0f3ae; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xf3d5, c.x))); // $F3AE LDA $F3D5,X
       case 0x0f3b1: if (c.cycles >= end) { c.key = 0x0f3b1; return -1; } c.cycles += 3; c.cmp(c.a, ram[0xef]); // $F3B1 CMP $EF
-      case 0x0f3b3: if (c.cycles >= end) { c.key = 0x0f3b3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0f3d4; } // $F3B3 BEQ $F3D4
+      case 0x0f3b3: if (c.cycles >= end) { c.key = 0x0f3b3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f3d4; } // $F3B3 BEQ $F3D4
       case 0x0f3b5: if (c.cycles >= end) { c.key = 0x0f3b5; return -1; } c.cycles += 3; ram[0xef] = c.a; // $F3B5 STA $EF
       case 0x1f3b7: if (c.cycles >= end) { c.key = 0x1f3b7; return -1; } c.cycles += 2; c.p &= ~0x01; // $F3B7* CLC
       case 0x0f3b8: if (c.cycles >= end) { c.key = 0x0f3b8; return -1; } c.cycles += 3; c.adc(ram[0xee]); // $F3B8 ADC $EE
-      case 0x0f3ba: if (c.cycles >= end) { c.key = 0x0f3ba; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f3c1; continue; } // $F3BA BPL $F3C1
+      case 0x0f3ba: if (c.cycles >= end) { c.key = 0x0f3ba; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f3c1; continue; } // $F3BA BPL $F3C1
       case 0x0f3bc: if (c.cycles >= end) { c.key = 0x0f3bc; return -1; } c.cycles += 2; c.a = c.setNZ(0x00); // $F3BC LDA #$00
       case 0x0f3be: if (c.cycles >= end) { c.key = 0x0f3be; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F3BE STA $F5
       case 0x0f3c0: if (c.cycles >= end) { c.key = 0x0f3c0; return -1; } c.cycles += 2;  // $F3C0 NOP
       case 0x0f3c1: if (c.cycles >= end) { c.key = 0x0f3c1; return -1; } c.cycles += 2; c.cmp(c.a, 0x24); // $F3C1 CMP #$24
-      case 0x0f3c3: if (c.cycles >= end) { c.key = 0x0f3c3; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0f3ca; continue; } // $F3C3 BCC $F3CA
+      case 0x0f3c3: if (c.cycles >= end) { c.key = 0x0f3c3; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f3ca; continue; } // $F3C3 BCC $F3CA
       case 0x0f3c5: if (c.cycles >= end) { c.key = 0x0f3c5; return -1; } c.cycles += 2; c.a = c.setNZ(0x23); // $F3C5 LDA #$23
       case 0x0f3c7: if (c.cycles >= end) { c.key = 0x0f3c7; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F3C7 STA $F5
       case 0x0f3c9: if (c.cycles >= end) { c.key = 0x0f3c9; return -1; } c.cycles += 2;  // $F3C9 NOP
@@ -6018,7 +6019,7 @@ function b153(c, bus, ram, rom, end, pc) {
       case 0x0f3fc: if (c.cycles >= end) { c.key = 0x0f3fc; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 2; pc = 0x0f409; continue; } // $F3FC BCS $F409
       case 0x0f3fe: if (c.cycles >= end) { c.key = 0x0f3fe; return -1; } c.cycles += 2; c.x = c.setNZ(0x48); // $F3FE LDX #$48
       case 0x0f400: if (c.cycles >= end) { c.key = 0x0f400; return -1; } c.cycles += 2; c.cmp(c.a, 0x0a); // $F400 CMP #$0A
-      case 0x0f402: if (c.cycles >= end) { c.key = 0x0f402; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0f409; continue; } // $F402 BCS $F409
+      case 0x0f402: if (c.cycles >= end) { c.key = 0x0f402; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f409; continue; } // $F402 BCS $F409
       case 0x0f404: if (c.cycles >= end) { c.key = 0x0f404; return -1; } c.cycles += 2; c.x = c.setNZ(0x30); // $F404 LDX #$30
       case 0x0f406: if (c.cycles >= end) { c.key = 0x0f406; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F406 STA $F5
       case 0x0f408: if (c.cycles >= end) { c.key = 0x0f408; return -1; } c.cycles += 2;  // $F408 NOP
@@ -6028,7 +6029,7 @@ function b153(c, bus, ram, rom, end, pc) {
       case 0x0f40f: if (c.cycles >= end) { c.key = 0x0f40f; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F40F STA $F5
       case 0x0f411: if (c.cycles >= end) { c.key = 0x0f411; return -1; } c.cycles += 2;  // $F411 NOP
       case 0x0f412: if (c.cycles >= end) { c.key = 0x0f412; return -1; } c.cycles += 2; c.sbc(0x0a); // $F412 SBC #$0A
-      case 0x0f414: if (c.cycles >= end) { c.key = 0x0f414; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0f412; continue; } // $F414 BCS $F412
+      case 0x0f414: if (c.cycles >= end) { c.key = 0x0f414; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f412; continue; } // $F414 BCS $F412
       case 0x0f416: if (c.cycles >= end) { c.key = 0x0f416; return -1; } c.cycles += 2; c.adc(0x0a); // $F416 ADC #$0A
       case 0x0f418: if (c.cycles >= end) { c.key = 0x0f418; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $F418 TAX
       case 0x0f419: if (c.cycles >= end) { c.key = 0x0f419; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0xf423, c.x))); // $F419 LDA $F423,X
@@ -6045,31 +6046,31 @@ function b154(c, bus, ram, rom, end, pc) {
       case 0x0f422: if (c.cycles >= end) { c.key = 0x0f422; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F422 RTS
       case 0x0f42f: if (c.cycles >= end) { c.key = 0x0f42f; return -1; } c.cycles += 2;  // $F42F NOP
       case 0x0f430: if (c.cycles >= end) { c.key = 0x0f430; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe1]); // $F430 LDA $E1
-      case 0x0f432: if (c.cycles >= end) { c.key = 0x0f432; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f483; } // $F432 BNE $F483
+      case 0x0f432: if (c.cycles >= end) { c.key = 0x0f432; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f483; } // $F432 BNE $F483
       case 0x0f434: if (c.cycles >= end) { c.key = 0x0f434; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F434 LDA $E2
       case 0x0f436: if (c.cycles >= end) { c.key = 0x0f436; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xe0); // $F436 AND #$E0
-      case 0x0f438: if (c.cycles >= end) { c.key = 0x0f438; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f483; } // $F438 BNE $F483
+      case 0x0f438: if (c.cycles >= end) { c.key = 0x0f438; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f483; } // $F438 BNE $F483
       case 0x0f43a: if (c.cycles >= end) { c.key = 0x0f43a; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xcb]); // $F43A LDX $CB
       case 0x0f43c: if (c.cycles >= end) { c.key = 0x0f43c; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x4003)); // $F43C LDA $4003
       case 0x0f43f: if (c.cycles >= end) { c.key = 0x0f43f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x40); // $F43F AND #$40
-      case 0x0f441: if (c.cycles >= end) { c.key = 0x0f441; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f448; continue; } // $F441 BNE $F448
+      case 0x0f441: if (c.cycles >= end) { c.key = 0x0f441; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f448; continue; } // $F441 BNE $F448
       case 0x0f443: if (c.cycles >= end) { c.key = 0x0f443; return -1; } c.cycles += 2; c.x = c.setNZ(0x00); // $F443 LDX #$00
       case 0x0f445: if (c.cycles >= end) { c.key = 0x0f445; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F445 STA $F5
       case 0x0f447: if (c.cycles >= end) { c.key = 0x0f447; return -1; } c.cycles += 2;  // $F447 NOP
       case 0x0f448: if (c.cycles >= end) { c.key = 0x0f448; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(c.indexed(0x4000, c.x))); // $F448 LDA $4000,X
       case 0x0f44b: if (c.cycles >= end) { c.key = 0x0f44b; return -1; } c.cycles += 2; c.a = c.setNZ(c.a ^ 0xff); // $F44B EOR #$FF
       case 0x0f44d: if (c.cycles >= end) { c.key = 0x0f44d; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x10); // $F44D AND #$10
-      case 0x0f44f: if (c.cycles >= end) { c.key = 0x0f44f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0f483; } // $F44F BEQ $F483
+      case 0x0f44f: if (c.cycles >= end) { c.key = 0x0f44f; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f483; } // $F44F BEQ $F483
       case 0x0f451: if (c.cycles >= end) { c.key = 0x0f451; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F451 LDA $E2
       case 0x0f453: if (c.cycles >= end) { c.key = 0x0f453; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x03); // $F453 AND #$03
       case 0x0f455: if (c.cycles >= end) { c.key = 0x0f455; return -1; } c.cycles += 2; c.cmp(c.a, 0x03); // $F455 CMP #$03
-      case 0x0f457: if (c.cycles >= end) { c.key = 0x0f457; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f45f; continue; } // $F457 BEQ $F45F
+      case 0x0f457: if (c.cycles >= end) { c.key = 0x0f457; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f45f; continue; } // $F457 BEQ $F45F
       case 0x0f459: if (c.cycles >= end) { c.key = 0x0f459; return -1; } c.cycles += 2; c.a = c.setNZ(0x11); // $F459 LDA #$11
       case 0x0f45b: if (c.cycles >= end) { c.key = 0x0f45b; return -1; } c.cycles += 4; c.write(0x4003, c.a); // $F45B STA $4003
       case 0x0f45e: if (c.cycles >= end) { c.key = 0x0f45e; return -1; } c.cycles += 2;  // $F45E NOP
       case 0x0f45f: if (c.cycles >= end) { c.key = 0x0f45f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xee]); // $F45F LDA $EE
       case 0x0f461: if (c.cycles >= end) { c.key = 0x0f461; return -1; } c.cycles += 2; c.cmp(c.a, 0x1e); // $F461 CMP #$1E
-      case 0x0f463: if (c.cycles >= end) { c.key = 0x0f463; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; return 0x0f487; } // $F463 BCC $F487
+      case 0x0f463: if (c.cycles >= end) { c.key = 0x0f463; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f487; } // $F463 BCC $F487
       case 0x0f465: if (c.cycles >= end) { c.key = 0x0f465; return -1; } c.cycles += 2; c.p |= 0x01; // $F465 SEC
       case 0x0f466: if (c.cycles >= end) { c.key = 0x0f466; return -1; } c.cycles += 2; c.sbc(0x1e); // $F466 SBC #$1E
       case 0x0f468: if (c.cycles >= end) { c.key = 0x0f468; return -1; } c.cycles += 2; c.a = c.asl(c.a); return 0x0f469; // $F468 ASL A
@@ -6093,14 +6094,14 @@ function b155(c, bus, ram, rom, end, pc) {
       case 0x0f483: if (c.cycles >= end) { c.key = 0x0f483; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F483 RTS
       case 0x0f487: if (c.cycles >= end) { c.key = 0x0f487; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe3]); // $F487 LDA $E3
       case 0x0f489: if (c.cycles >= end) { c.key = 0x0f489; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x20); // $F489 AND #$20
-      case 0x0f48b: if (c.cycles >= end) { c.key = 0x0f48b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f483; continue; } // $F48B BNE $F483
+      case 0x0f48b: if (c.cycles >= end) { c.key = 0x0f48b; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f483; continue; } // $F48B BNE $F483
       case 0x0f48d: if (c.cycles >= end) { c.key = 0x0f48d; return -1; } c.cycles += 2; c.a = c.setNZ(0x60); // $F48D LDA #$60
       case 0x0f48f: if (c.cycles >= end) { c.key = 0x0f48f; return -1; } c.cycles += 3; ram[0xd9] = c.a; // $F48F STA $D9
       case 0x0f491: if (c.cycles >= end) { c.key = 0x0f491; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xee]); // $F491 LDX $EE
       case 0x0f493: if (c.cycles >= end) { c.key = 0x0f493; return -1; } c.cycles += 2; c.cmp(c.x, 0x1a); // $F493 CPX #$1A
-      case 0x0f495: if (c.cycles >= end) { c.key = 0x0f495; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0f4ac; continue; } // $F495 BCC $F4AC
+      case 0x0f495: if (c.cycles >= end) { c.key = 0x0f495; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f4ac; continue; } // $F495 BCC $F4AC
       case 0x0f497: if (c.cycles >= end) { c.key = 0x0f497; return -1; } c.cycles += 2; c.cmp(c.x, 0x1e); // $F497 CPX #$1E
-      case 0x0f499: if (c.cycles >= end) { c.key = 0x0f499; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0f4ac; continue; } // $F499 BCS $F4AC
+      case 0x0f499: if (c.cycles >= end) { c.key = 0x0f499; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f4ac; continue; } // $F499 BCS $F4AC
       case 0x0f49b: if (c.cycles >= end) { c.key = 0x0f49b; return -1; } c.cycles += 2; c.a = c.setNZ(c.x); // $F49B TXA
       case 0x0f49c: if (c.cycles >= end) { c.key = 0x0f49c; return -1; } c.cycles += 2; c.sbc(0x18); // $F49C SBC #$18
       case 0x0f49e: if (c.cycles >= end) { c.key = 0x0f49e; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $F49E TAX
@@ -6108,7 +6109,7 @@ function b155(c, bus, ram, rom, end, pc) {
       case 0x0f4a1: if (c.cycles >= end) { c.key = 0x0f4a1; return -1; } c.cycles += 3; ram[0xd8] = c.a; // $F4A1 STA $D8
       case 0x0f4a3: if (c.cycles >= end) { c.key = 0x0f4a3; return -1; } c.cycles += 2; c.a = c.setNZ(0x66); // $F4A3 LDA #$66
       case 0x0f4a5: if (c.cycles >= end) { c.key = 0x0f4a5; return -1; } c.cycles += 3; ram[0xd9] = c.a; // $F4A5 STA $D9
-      case 0x0f4a7: if (c.cycles >= end) { c.key = 0x0f4a7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f4b3; } // $F4A7 BNE $F4B3
+      case 0x0f4a7: if (c.cycles >= end) { c.key = 0x0f4a7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f4b3; } // $F4A7 BNE $F4B3
       case 0x0f4a9: if (c.cycles >= end) { c.key = 0x0f4a9; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F4A9 STA $F5
       case 0x0f4ab: if (c.cycles >= end) { c.key = 0x0f4ab; return -1; } c.cycles += 2;  // $F4AB NOP
       case 0x0f4ac: if (c.cycles >= end) { c.key = 0x0f4ac; return -1; } c.cycles += 2; c.a = c.setNZ(0x50); return 0x0f4ae; // $F4AC LDA #$50
@@ -6130,7 +6131,7 @@ function b156(c, bus, ram, rom, end, pc) {
       case 0x0f4bc: if (c.cycles >= end) { c.key = 0x0f4bc; return -1; } c.cycles += 2; c.adc(0x00); // $F4BC ADC #$00
       case 0x0f4be: if (c.cycles >= end) { c.key = 0x0f4be; return -1; } c.cycles += 3; ram[0xd9] = c.a; // $F4BE STA $D9
       case 0x0f4c0: if (c.cycles >= end) { c.key = 0x0f4c0; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $F4C0 DEX
-      case 0x0f4c1: if (c.cycles >= end) { c.key = 0x0f4c1; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f4b3; continue; } // $F4C1 BPL $F4B3
+      case 0x0f4c1: if (c.cycles >= end) { c.key = 0x0f4c1; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f4b3; continue; } // $F4C1 BPL $F4B3
       case 0x0f4c3: if (c.cycles >= end) { c.key = 0x0f4c3; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F4C3 STA $F5
       case 0x0f4c5: if (c.cycles >= end) { c.key = 0x0f4c5; return -1; } c.cycles += 2;  // $F4C5 NOP
       case 0x0f4c6: if (c.cycles >= end) { c.key = 0x0f4c6; return -1; } c.cycles += 2; c.a = c.setNZ(0xe0); // $F4C6 LDA #$E0
@@ -6171,7 +6172,7 @@ function b157(c, bus, ram, rom, end, pc) {
       case 0x0f512: if (c.cycles >= end) { c.key = 0x0f512; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F512 RTS
       case 0x0f516: if (c.cycles >= end) { c.key = 0x0f516; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F516 LDA $E2
       case 0x0f518: if (c.cycles >= end) { c.key = 0x0f518; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $F518 AND #$0F
-      case 0x0f51a: if (c.cycles >= end) { c.key = 0x0f51a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f532; continue; } // $F51A BEQ $F532
+      case 0x0f51a: if (c.cycles >= end) { c.key = 0x0f51a; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f532; continue; } // $F51A BEQ $F532
       case 0x0f51c: if (c.cycles >= end) { c.key = 0x0f51c; return -1; } c.cycles += 5; ram[0xe2] = c.setNZ((ram[0xe2] - 1) & 0xff); // $F51C DEC $E2
       case 0x1f51e: if (c.cycles >= end) { c.key = 0x1f51e; return -1; } c.cycles += 2; c.a = c.setNZ(0xf5); // $F51E* LDA #$F5
       case 0x0f520: if (c.cycles >= end) { c.key = 0x0f520; return -1; } c.cycles += 3; ram[0xee] = c.a; // $F520 STA $EE
@@ -6211,7 +6212,7 @@ function b158(c, bus, ram, rom, end, pc) {
       case 0x0f556: if (c.cycles >= end) { c.key = 0x0f556; return -1; } c.cycles += 5; c.a = c.setNZ(c.read(c.indirectY(0xd8, true))); // $F556 LDA ($D8),Y
       case 0x0f558: if (c.cycles >= end) { c.key = 0x0f558; return -1; } c.cycles += 6; c.write(c.indirectY(0xda, false), c.a); // $F558 STA ($DA),Y
       case 0x0f55a: if (c.cycles >= end) { c.key = 0x0f55a; return -1; } c.cycles += 2; c.y = c.setNZ((c.y - 1) & 0xff); // $F55A DEY
-      case 0x0f55b: if (c.cycles >= end) { c.key = 0x0f55b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f556; continue; } // $F55B BPL $F556
+      case 0x0f55b: if (c.cycles >= end) { c.key = 0x0f55b; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f556; continue; } // $F55B BPL $F556
       case 0x0f55d: if (c.cycles >= end) { c.key = 0x0f55d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xd9]); // $F55D LDA $D9
       case 0x0f55f: if (c.cycles >= end) { c.key = 0x0f55f; return -1; } c.cycles += 2; c.p &= ~0x01; // $F55F CLC
       case 0x0f560: if (c.cycles >= end) { c.key = 0x0f560; return -1; } c.cycles += 2; c.adc(0x20); // $F560 ADC #$20
@@ -6221,7 +6222,7 @@ function b158(c, bus, ram, rom, end, pc) {
       case 0x0f567: if (c.cycles >= end) { c.key = 0x0f567; return -1; } c.cycles += 2; c.adc(0x20); // $F567 ADC #$20
       case 0x0f569: if (c.cycles >= end) { c.key = 0x0f569; return -1; } c.cycles += 3; ram[0xdb] = c.a; // $F569 STA $DB
       case 0x0f56b: if (c.cycles >= end) { c.key = 0x0f56b; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $F56B DEX
-      case 0x0f56c: if (c.cycles >= end) { c.key = 0x0f56c; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; pc = 0x0f551; continue; } // $F56C BPL $F551
+      case 0x0f56c: if (c.cycles >= end) { c.key = 0x0f56c; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f551; continue; } // $F56C BPL $F551
       case 0x0f56e: if (c.cycles >= end) { c.key = 0x0f56e; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F56E RTS
       case 0x0f571: if (c.cycles >= end) { c.key = 0x0f571; return -1; } c.cycles += 2;  // $F571 NOP
       case 0x0f572: if (c.cycles >= end) { c.key = 0x0f572; return -1; } c.cycles += 4; c.a = c.setNZ(c.read(0x1807)); // $F572 LDA $1807
@@ -6255,13 +6256,13 @@ function b159(c, bus, ram, rom, end, pc) {
       case 0x0f59d: if (c.cycles >= end) { c.key = 0x0f59d; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F59D LDA $E2
       case 0x0f59f: if (c.cycles >= end) { c.key = 0x0f59f; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0xe0); // $F59F AND #$E0
       case 0x0f5a1: if (c.cycles >= end) { c.key = 0x0f5a1; return -1; } c.cycles += 2; c.cmp(c.a, 0x40); // $F5A1 CMP #$40
-      case 0x0f5a3: if (c.cycles >= end) { c.key = 0x0f5a3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f5a9; continue; } // $F5A3 BEQ $F5A9
+      case 0x0f5a3: if (c.cycles >= end) { c.key = 0x0f5a3; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f5a9; continue; } // $F5A3 BEQ $F5A9
       case 0x0f5a5: if (c.cycles >= end) { c.key = 0x0f5a5; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F5A5 RTS
       case 0x0f5a9: if (c.cycles >= end) { c.key = 0x0f5a9; return -1; } c.cycles += 2; c.a = c.setNZ(0x9b); // $F5A9 LDA #$9B
       case 0x0f5ab: if (c.cycles >= end) { c.key = 0x0f5ab; return -1; } c.cycles += 3; ram[0xd8] = c.a; // $F5AB STA $D8
       case 0x1f5ad: if (c.cycles >= end) { c.key = 0x1f5ad; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F5AD* LDA $E2
       case 0x0f5af: if (c.cycles >= end) { c.key = 0x0f5af; return -1; } c.cycles += 2; c.a = c.setNZ(c.a & 0x0f); // $F5AF AND #$0F
-      case 0x0f5b1: if (c.cycles >= end) { c.key = 0x0f5b1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; return 0x0f5c4; } // $F5B1 BEQ $F5C4
+      case 0x0f5b1: if (c.cycles >= end) { c.key = 0x0f5b1; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f5c4; } // $F5B1 BEQ $F5C4
       case 0x0f5b3: if (c.cycles >= end) { c.key = 0x0f5b3; return -1; } c.cycles += 2; c.x = c.setNZ(c.a); // $F5B3 TAX
       case 0x0f5b4: if (c.cycles >= end) { c.key = 0x0f5b4; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F5B4 STA $F5
       case 0x1f5b6: if (c.cycles >= end) { c.key = 0x1f5b6; return -1; } c.cycles += 2;  // $F5B6* NOP
@@ -6277,7 +6278,7 @@ function b160(c, bus, ram, rom, end, pc) {
     switch (pc) {
       case 0x0f5bc: if (c.cycles >= end) { c.key = 0x0f5bc; return -1; } c.cycles += 3; ram[0xd8] = c.a; // $F5BC STA $D8
       case 0x1f5be: if (c.cycles >= end) { c.key = 0x1f5be; return -1; } c.cycles += 2; c.x = c.setNZ((c.x - 1) & 0xff); // $F5BE* DEX
-      case 0x0f5bf: if (c.cycles >= end) { c.key = 0x0f5bf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; return 0x0f5b7; } // $F5BF BNE $F5B7
+      case 0x0f5bf: if (c.cycles >= end) { c.key = 0x0f5bf; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f5b7; } // $F5BF BNE $F5B7
       case 0x0f5c1: if (c.cycles >= end) { c.key = 0x0f5c1; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F5C1 STA $F5
       case 0x0f5c3: if (c.cycles >= end) { c.key = 0x0f5c3; return -1; } c.cycles += 2;  // $F5C3 NOP
       case 0x0f5c4: if (c.cycles >= end) { c.key = 0x0f5c4; return -1; } c.cycles += 3; c.x = c.setNZ(ram[0xed]); // $F5C4 LDX $ED
@@ -6285,10 +6286,10 @@ function b160(c, bus, ram, rom, end, pc) {
       case 0x0f5c9: if (c.cycles >= end) { c.key = 0x0f5c9; return -1; } c.cycles += 3; ram[0xd9] = c.a; // $F5C9 STA $D9
       case 0x0f5cb: if (c.cycles >= end) { c.key = 0x0f5cb; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xd8]); // $F5CB LDA $D8
       case 0x0f5cd: if (c.cycles >= end) { c.key = 0x0f5cd; return -1; } c.cycles += 4; c.cmp(c.a, c.read(0x1802)); // $F5CD CMP $1802
-      case 0x0f5d0: if (c.cycles >= end) { c.key = 0x0f5d0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f5e2; continue; } // $F5D0 BEQ $F5E2
-      case 0x0f5d2: if (c.cycles >= end) { c.key = 0x0f5d2; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0f5dc; continue; } // $F5D2 BCC $F5DC
+      case 0x0f5d0: if (c.cycles >= end) { c.key = 0x0f5d0; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f5e2; continue; } // $F5D0 BEQ $F5E2
+      case 0x0f5d2: if (c.cycles >= end) { c.key = 0x0f5d2; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f5dc; continue; } // $F5D2 BCC $F5DC
       case 0x0f5d4: if (c.cycles >= end) { c.key = 0x0f5d4; return -1; } c.cycles += 6; c.rmw(0x1802, (v) => c.setNZ((v + 1) & 0xff)); // $F5D4 INC $1802
-      case 0x1f5d7: if (c.cycles >= end) { c.key = 0x1f5d7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; pc = 0x0f5e2; continue; } // $F5D7* BNE $F5E2
+      case 0x1f5d7: if (c.cycles >= end) { c.key = 0x1f5d7; return -1; } c.cycles += 2; if (!(c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f5e2; continue; } // $F5D7* BNE $F5E2
       case 0x0f5d9: if (c.cycles >= end) { c.key = 0x0f5d9; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F5D9 STA $F5
       case 0x0f5db: if (c.cycles >= end) { c.key = 0x0f5db; return -1; } c.cycles += 2;  // $F5DB NOP
       case 0x0f5dc: if (c.cycles >= end) { c.key = 0x0f5dc; return -1; } c.cycles += 6; c.rmw(0x1802, (v) => c.setNZ((v - 1) & 0xff)); // $F5DC DEC $1802
@@ -6296,7 +6297,7 @@ function b160(c, bus, ram, rom, end, pc) {
       case 0x0f5e1: if (c.cycles >= end) { c.key = 0x0f5e1; return -1; } c.cycles += 2;  // $F5E1 NOP
       case 0x0f5e2: if (c.cycles >= end) { c.key = 0x0f5e2; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xd9]); // $F5E2 LDA $D9
       case 0x0f5e4: if (c.cycles >= end) { c.key = 0x0f5e4; return -1; } c.cycles += 4; c.cmp(c.a, c.read(0x1803)); // $F5E4 CMP $1803
-      case 0x0f5e7: if (c.cycles >= end) { c.key = 0x0f5e7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; pc = 0x0f5f6; continue; } // $F5E7 BEQ $F5F6
+      case 0x0f5e7: if (c.cycles >= end) { c.key = 0x0f5e7; return -1; } c.cycles += 2; if ((c.p & 0x02)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f5f6; continue; } // $F5E7 BEQ $F5F6
       case 0x0f5e9: if (c.cycles >= end) { c.key = 0x0f5e9; return -1; } c.cycles += 6; c.rmw(0x1803, (v) => c.setNZ((v + 1) & 0xff)); // $F5E9 INC $1803
       case 0x1f5ec: if (c.cycles >= end) { c.key = 0x1f5ec; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F5EC* STA $F5
       case 0x1f5ee: if (c.cycles >= end) { c.key = 0x1f5ee; return -1; } c.cycles += 2;  // $F5EE* NOP
@@ -6329,11 +6330,11 @@ function b161(c, bus, ram, rom, end, pc) {
       case 0x0f621: if (c.cycles >= end) { c.key = 0x0f621; return -1; } c.cycles += 2; c.y = c.setNZ(c.a); // $F621 TAY
       case 0x0f622: if (c.cycles >= end) { c.key = 0x0f622; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xee]); // $F622 LDA $EE
       case 0x0f624: if (c.cycles >= end) { c.key = 0x0f624; return -1; } c.cycles += 2; c.cmp(c.a, 0x1a); // $F624 CMP #$1A
-      case 0x0f626: if (c.cycles >= end) { c.key = 0x0f626; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; pc = 0x0f633; continue; } // $F626 BCC $F633
+      case 0x0f626: if (c.cycles >= end) { c.key = 0x0f626; return -1; } c.cycles += 2; if (!(c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f633; continue; } // $F626 BCC $F633
       case 0x0f628: if (c.cycles >= end) { c.key = 0x0f628; return -1; } c.cycles += 2; c.cmp(c.a, 0x1e); // $F628 CMP #$1E
-      case 0x0f62a: if (c.cycles >= end) { c.key = 0x0f62a; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; pc = 0x0f633; continue; } // $F62A BCS $F633
+      case 0x0f62a: if (c.cycles >= end) { c.key = 0x0f62a; return -1; } c.cycles += 2; if ((c.p & 0x01)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f633; continue; } // $F62A BCS $F633
       case 0x0f62c: if (c.cycles >= end) { c.key = 0x0f62c; return -1; } c.cycles += 2; c.adc(0xb2); // $F62C ADC #$B2
-      case 0x0f62e: if (c.cycles >= end) { c.key = 0x0f62e; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; pc = 0x0f639; continue; } // $F62E BMI $F639
+      case 0x0f62e: if (c.cycles >= end) { c.key = 0x0f62e; return -1; } c.cycles += 2; if ((c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; pc = 0x0f639; continue; } // $F62E BMI $F639
       case 0x0f630: if (c.cycles >= end) { c.key = 0x0f630; return -1; } c.cycles += 3; ram[0xf5] = c.a; // $F630 STA $F5
       case 0x0f632: if (c.cycles >= end) { c.key = 0x0f632; return -1; } c.cycles += 2;  // $F632 NOP
       case 0x0f633: if (c.cycles >= end) { c.key = 0x0f633; return -1; } c.cycles += 2; c.p &= ~0x01; // $F633 CLC
@@ -6344,7 +6345,7 @@ function b161(c, bus, ram, rom, end, pc) {
       case 0x0f63b: if (c.cycles >= end) { c.key = 0x0f63b; return -1; } c.cycles += 6; return (c.pull() | (c.pull() << 8)) + 1 & 0xffff; // $F63B RTS
       case 0x0f63e: if (c.cycles >= end) { c.key = 0x0f63e; return -1; } c.cycles += 2;  // $F63E NOP
       case 0x0f63f: if (c.cycles >= end) { c.key = 0x0f63f; return -1; } c.cycles += 3; c.a = c.setNZ(ram[0xe2]); // $F63F LDA $E2
-      case 0x0f641: if (c.cycles >= end) { c.key = 0x0f641; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; return 0x0f65b; } // $F641 BPL $F65B
+      case 0x0f641: if (c.cycles >= end) { c.key = 0x0f641; return -1; } c.cycles += 2; if (!(c.p & 0x80)) { c.cycles += 1; c.brAt = c.cycles; return 0x0f65b; } // $F641 BPL $F65B
       case 0x0f643: if (c.cycles >= end) { c.key = 0x0f643; return -1; } c.cycles += 2; c.a = c.setNZ(0xd0); return 0x0f645; // $F643 LDA #$D0
       default: return pc;
     }
@@ -6379,7 +6380,17 @@ KEYS.forEach((k, i) => { TABLE[k] = BLOCKS[Math.floor(i / BLOCK_SIZE)]; });
 export function run(c, bus, end) {
   const ram = bus.ram;
   const rom = bus.rom;
-  let pc = c.cycles < end ? interrupts(c, c.key) : c.key;
+  let pc = c.key;
+  if (c.deferInt && c.cycles < end) {
+    // an interrupt raised after the last instruction sampled: one more
+    // instruction runs before it can be taken
+    c.deferInt = false;
+    const block = TABLE[pc];
+    if (!block) throw new Error('no instruction at $' + hex(pc & 0xffff) + (pc >> 16 ? '*' : ''));
+    const next = block(c, bus, ram, rom, c.cycles + 1, pc); // one instruction
+    pc = next === -1 ? c.key : next;
+  }
+  if (c.cycles < end) pc = interrupts(c, pc);
   while (pc >= 0) {
     const block = TABLE[pc];
     if (!block) throw new Error('no instruction at $' + hex(pc & 0xffff) + (pc >> 16 ? '*' : ''));

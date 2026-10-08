@@ -14,6 +14,11 @@
 //
 // bus: { read(addr, cycles) -> byte, write(addr, value, cycles) }
 
+// cycles from power-on to the first opcode fetch. The 6502's reset sequence
+// is 7 bus cycles; 8 lines both CPUs up with MAME (the sound CPU's AY writes
+// then match MAME's write for write, tools/compare-mame-sound.mjs)
+export const RESET_CYCLES = 8;
+
 const C = 0x01, Z = 0x02, I = 0x04, D = 0x08, B = 0x10, U = 0x20, V = 0x40, N = 0x80;
 
 export class M6502 {
@@ -29,7 +34,20 @@ export class M6502 {
     // the I flag the interrupt poll sees: the 6502 polls before CLI, SEI and
     // PLP change I, so their new value only counts after the next instruction
     this.pollI = I;
+    // MAME samples interrupt inputs at the start of every bus cycle but the
+    // opcode fetch and a taken same-page branch's last: brAt is the end cycle
+    // of such a branch, so the last sample was at cycles - 2 after one and
+    // cycles - 1 otherwise. An interrupt raised later than that is seen one
+    // instruction late (deferInt, set by whoever raises it).
+    this.brAt = -1;
+    this.deferInt = false;
   }
+
+  // last cycle the interrupt inputs were sampled at
+  sampleAt() { return this.brAt === this.cycles ? this.cycles - 2 : this.cycles - 1; }
+
+  // raise an interrupt input at cycle t (between instructions, t <= cycles)
+  raised(t) { if (t > this.sampleAt()) this.deferInt = true; }
 
   reset() {
     this.pc = this.read16(0xfffc);
@@ -65,6 +83,7 @@ export class M6502 {
 
   // take a pending NMI, else a pending unmasked IRQ; true if one was taken
   serviceInterrupts() {
+    if (this.deferInt) { this.deferInt = false; return false; }
     if (this.nmiPending) { this.nmiPending = false; this.interrupt(0xfffa); this.pollI = I; return true; }
     if (this.irqLine && !this.pollI) { this.interrupt(0xfffe); this.pollI = I; return true; }
     return false;
@@ -138,7 +157,8 @@ export class M6502 {
     const off = this.read(this.pc++);
     if (!cond) return;
     const target = (this.pc + ((off ^ 0x80) - 0x80)) & 0xffff;
-    this.cycles += ((target & 0xff00) !== (this.pc & 0xff00)) ? 2 : 1;
+    if ((target & 0xff00) !== (this.pc & 0xff00)) this.cycles += 2;
+    else { this.cycles += 1; this.brAt = this.cycles; }
     this.pc = target;
   }
   rmw(addr, fn) { this.write(addr, fn(this.read(addr))); }

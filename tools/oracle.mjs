@@ -4,6 +4,8 @@
 import { readFileSync } from 'node:fs';
 import { M6502 } from '../src/cpu6502.mjs';
 import { MainBus, CYCLES_PER_FRAME } from '../src/btimeBus.mjs';
+import { SoundBus, SoundTimeline } from '../src/btimeSound.mjs';
+import { RESET_CYCLES } from '../src/cpu6502.mjs';
 
 const ROM_DIR = new URL('../rom/', import.meta.url);
 const load = (name) => new Uint8Array(readFileSync(new URL(name, ROM_DIR)));
@@ -26,8 +28,42 @@ export function loadRoms() {
   return { main, sound, gfx1, gfx2, bgMap };
 }
 
+// the sound CPU, interpreted, on the sound board (src/btimeSound.mjs)
+export class OracleSound {
+  constructor(roms = loadRoms(), { resetCycles = Number(process.env.SOUND_RESET ?? RESET_CYCLES) } = {}) {
+    this.bus = new SoundBus(roms.sound);
+    this.cpu = new M6502(this.bus);
+    this.cpu.reset();
+    this.cpu.cycles = resetCycles;
+    this.onInstruction = null;
+    this.lateWrites = [];
+    const cpu = this.cpu;
+    const bus = this.bus;
+    this.timeline = new SoundTimeline(cpu, bus, (t) => {
+      while (cpu.cycles < t) {
+        // record the writes of an instruction that may end past t
+        bus.journal = cpu.cycles + 8 > t ? [] : null;
+        if (cpu.serviceInterrupts()) continue;
+        if (this.onInstruction) this.onInstruction(cpu, cpu.pc);
+        cpu.step();
+      }
+      this.lateWrites = cpu.cycles > t ? bus.journal ?? [] : [];
+      bus.journal = null;
+    });
+  }
+
+  runFrame(commands) { this.timeline.runFrame(commands); }
+
+  // sound RAM as it was at the frame boundary (see OracleMachine.snapshot)
+  snapshotRam() {
+    const ram = this.bus.ram.slice();
+    for (let i = this.lateWrites.length - 1; i >= 0; i -= 1) ram[this.lateWrites[i][0]] = this.lateWrites[i][1];
+    return ram;
+  }
+}
+
 export class OracleMachine {
-  constructor(roms = loadRoms(), { resetCycles = 0 } = {}) {
+  constructor(roms = loadRoms(), { resetCycles = Number(process.env.MAIN_RESET ?? RESET_CYCLES) } = {}) {
     this.roms = roms;
     this.bus = new MainBus(roms.main);
     this.cpu = new M6502(this.bus);
@@ -44,7 +80,7 @@ export class OracleMachine {
   setSystem(value) {
     const rising = value & ~this.bus.system & 0xc0;
     this.bus.system = value;
-    if (rising) this.cpu.irqLine = true;
+    if (rising && !this.cpu.irqLine) { this.cpu.irqLine = true; this.cpu.raised(this.frame * CYCLES_PER_FRAME); }
   }
 
   // run to the end of the current frame (the next VBLANK start)

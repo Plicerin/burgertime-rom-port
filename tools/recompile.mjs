@@ -27,7 +27,8 @@ const CPUS = {
     name: 'MAIN', what: 'the Burger Time main CPU program (ROMs aa04.9b, aa06.13b, aa05.10b, aa07.15b)',
   },
   sound: {
-    rom: () => loadRoms().sound, romStart: 0xe000, scrambled: false, ramEnd: 0x400,
+    // the 4K ROM answers at $E000 and $F000; the program only uses $F000
+    rom: () => loadRoms().sound, romStart: 0xf000, mirror: 0xe000, scrambled: false, ramEnd: 0x400,
     trace: './out/trace-sound.json', code: '../src/btimeSoundRecomp.mjs', data: '../src/btimeSoundData.mjs',
     name: 'SOUND', what: 'the Burger Time sound CPU program (ROM ab14.12h, at $E000 and mirrored at $F000)',
   },
@@ -67,7 +68,15 @@ const TABLES = {
     // letters, JMP ($00D8) from $F4EB,X
     [0xf4eb, 6],
   ],
-  sound: [],
+  sound: [
+    // $F083: NMI tick, X = $04 * 2 for $04 = 0-4, JMP ($001C) from $F09E,X
+    [0xf09e, 5],
+    // $F2AB: command $00-$05, X = command * 2, JMP ($0041) from $F2D5,X
+    [0xf2d5, 6],
+    // $F271: command $11-$1E, X = (command & $0F) * 2, JMP ($003F) from
+    // $F2E1,X: entries 1-14
+    [0xf2e3, 14],
+  ],
 };
 for (const [table, count] of TABLES[which]) for (let i = 0; i < count; i += 1) work.push(keyOf(vector(table + 2 * i), false));
 const successors = (key, ins) => {
@@ -95,10 +104,21 @@ while (work.length) {
 }
 for (const k of executed.keys()) if (!nodes.has(k)) throw new Error(`executed ${keyText(k)} did not decode`);
 
-// --- data: ROM bytes outside executed instructions, plus code read as data ---
+// --- data: ROM bytes outside executed instructions, plus code read as data:
+// what the traces saw read, every fixed address an instruction reads, and the
+// 256 bytes an indexed read (abs,X / abs,Y) can reach from its base. The game
+// does index into its own code: the coin handler's credit limit check
+// (CMP $D064,Y at $D00A) uses whatever Y the interrupted code left.
 const isCode = new Uint8Array(0x10000);
 for (const [k] of executed) { const ins = nodes.get(k); for (let i = 0; i < ins.size; i += 1) isCode[(k & 0xffff) + i] = 1; }
 for (const a of trace.dataReads) isCode[a] = 0;
+const STORES = new Set(['sta', 'stx', 'sty']);
+for (const ins of nodes.values()) {
+  if (STORES.has(ins.mn) || ins.operand < cfg.romStart) continue;
+  if (ins.mode === 'abs' && !['jmp', 'jsr'].includes(ins.mn)) isCode[ins.operand] = 0;
+  if (ins.mode === 'absx' || ins.mode === 'absy') for (let i = 0; i < 256 && ins.operand + i < 0x10000; i += 1) isCode[ins.operand + i] = 0;
+  if (ins.mode === 'ind') { isCode[ins.operand] = 0; isCode[(ins.operand & 0xff00) | ((ins.operand + 1) & 0xff)] = 0; }
+}
 const spans = [];
 for (let i = cfg.romStart; i < 0x10000;) {
   if (isCode[i]) { i += 1; continue; }
@@ -184,8 +204,8 @@ const body = (key, ins, go, goDyn) => {
     default:
       if (mode === 'rel') {
         const target = (next + ((ins.operand ^ 0x80) - 0x80)) & 0xffff;
-        const extra = (target & 0xff00) !== (next & 0xff00) ? 2 : 1;
-        return `if (${FLAG[mn]}) { c.cycles += ${extra}; ${go(keyOf(target, false))} }`;
+        const cross = (target & 0xff00) !== (next & 0xff00);
+        return `if (${FLAG[mn]}) { ${cross ? 'c.cycles += 2;' : 'c.cycles += 1; c.brAt = c.cycles;'} ${go(keyOf(target, false))} }`;
       }
       throw new Error(`unsupported ${mn} at ${keyText(key)}`);
   }
@@ -237,6 +257,7 @@ function enter(c, key, vectorKey) {
 // take a pending NMI, else an unmasked IRQ (MAME HOLD_LINE: taking it clears
 // the line when c.irqHold is set)
 function interrupts(c, key) {
+  if (c.deferInt) return key;
   if (c.nmiPending) { c.nmiPending = false; return enter(c, key, ${$(keyOf(vector(0xfffa), true), 5)}); }
   if (c.irqLine && !c.pollI) { if (c.irqHold) c.irqLine = false; return enter(c, key, ${$(keyOf(vector(0xfffe), true), 5)}); }
   return key;
@@ -296,7 +317,17 @@ KEYS.forEach((k, i) => { TABLE[k] = BLOCKS[Math.floor(i / BLOCK_SIZE)]; });
 export function run(c, bus, end) {
   const ram = bus.ram;
   const rom = bus.rom;
-  let pc = c.cycles < end ? interrupts(c, c.key) : c.key;
+  let pc = c.key;
+  if (c.deferInt && c.cycles < end) {
+    // an interrupt raised after the last instruction sampled: one more
+    // instruction runs before it can be taken
+    c.deferInt = false;
+    const block = TABLE[pc];
+    if (!block) throw new Error('no instruction at $' + hex(pc & 0xffff) + (pc >> 16 ? '*' : ''));
+    const next = block(c, bus, ram, rom, c.cycles + 1, pc); // one instruction
+    pc = next === -1 ? c.key : next;
+  }
+  if (c.cycles < end) pc = interrupts(c, pc);
   while (pc >= 0) {
     const block = TABLE[pc];
     if (!block) throw new Error('no instruction at $' + hex(pc & 0xffff) + (pc >> 16 ? '*' : ''));
@@ -321,11 +352,21 @@ export function ${which}DataImage() {
   const mem = new Uint8Array(0x10000);
   for (const [at, hexBytes] of ${cfg.name}_DATA) {
     for (let i = 0; i < hexBytes.length / 2; i += 1) mem[at + i] = parseInt(hexBytes.substr(i * 2, 2), 16);
-  }
+  }${cfg.mirror ? `
+  mem.copyWithin(${$(cfg.mirror, 4)}, ${$(cfg.romStart, 4)}, 0x10000); // the ROM's mirror` : ''}
   return mem;
 }
 `);
 writeFileSync(new URL(cfg.data, import.meta.url), data.join('\n'));
+
+// listing for reading the program: address (* = unscrambled), bytes, times
+// executed in the traces (- = found statically), instruction
+const lst = keys.map((k) => {
+  const ins = nodes.get(k);
+  const bytes = [...rom.subarray(k & 0xffff, (k & 0xffff) + ins.size)].map((v) => hex(v)).join(' ');
+  return `${keyText(k).padEnd(6)} ${bytes.padEnd(9)} ${String(executed.get(k) ?? '-').padStart(9)}  ${ins.text}`;
+});
+writeFileSync(new URL(`./out/${which}.lst`, import.meta.url), lst.join('\n') + '\n');
 
 const staticOnly = keys.filter((k) => !executed.has(k)).length;
 const dataBytes = spans.reduce((n, [, b]) => n + b.length, 0);
