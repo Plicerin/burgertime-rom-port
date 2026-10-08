@@ -1,0 +1,5 @@
+# the arcade ROM set is copyrighted: never commit or publish it
+rom/
+*.zip
+node_modules/
+tools/out/
